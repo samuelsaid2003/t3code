@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @effect-diagnostics nodeBuiltinImport:off - CLI entrypoint detection compares Node-resolved file URLs before Effect services exist.
 
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -192,9 +193,21 @@ export class DevRunnerHostNotProxiableError extends Schema.TaggedErrorClass<DevR
   }
 }
 
+export class DevRunnerLiveHomeError extends Schema.TaggedErrorClass<DevRunnerLiveHomeError>()(
+  "DevRunnerLiveHomeError",
+  {
+    homePath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Refusing to start development against the live T3 Code home at "${this.homePath}". Omit --home-dir to use this checkout's isolated .t3 state, or choose a different directory.`;
+  }
+}
+
 export const DevRunnerError = Schema.Union([
   DevRunnerConfigurationError,
   DevRunnerHostNotProxiableError,
+  DevRunnerLiveHomeError,
   DevRunnerInvalidPortOffsetError,
   DevRunnerPortExhaustedError,
   DevRunnerProcessError,
@@ -659,6 +672,25 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
 
     const worktreePath = yield* resolveGitWorktreePath(yield* HostProcessWorkingDirectory);
 
+    const hostEnvironment = yield* HostProcessEnvironment;
+    // A dev server started inside a worktree defaults to that worktree's own
+    // (gitignored) `.t3` — see @t3tools/shared/devHome for why this must
+    // outrank an ambient T3CODE_HOME. `--home-dir` still wins, except that the
+    // live default home is never a valid development target.
+    const worktreeHome = yield* resolveWorktreeT3Home(yield* HostProcessWorkingDirectory);
+    // Trim before choosing: `--home-dir ""` is not a selection, and treating it
+    // as one would skip the worktree default and land on the shared home —
+    // exactly the outcome this precedence exists to prevent.
+    const resolvedT3Home =
+      (input.t3Home?.trim() || undefined) ??
+      worktreeHome ??
+      (hostEnvironment.T3CODE_HOME?.trim() || undefined);
+    const path = yield* Path.Path;
+    const liveT3Home = yield* DEFAULT_T3_HOME;
+    if (resolvedT3Home !== undefined && path.resolve(resolvedT3Home) === path.resolve(liveT3Home)) {
+      return yield* new DevRunnerLiveHomeError({ homePath: liveT3Home });
+    }
+
     const { offset, source } = yield* resolveOffset({
       portOffset,
       devInstance,
@@ -675,18 +707,6 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       checkPortAvailability: makeDefaultCheckPortAvailability(input.host),
     });
 
-    const hostEnvironment = yield* HostProcessEnvironment;
-    // A dev server started inside a worktree defaults to that worktree's own
-    // (gitignored) `.t3` — see @t3tools/shared/devHome for why this must
-    // outrank an ambient T3CODE_HOME. `--home-dir` still wins.
-    const worktreeHome = yield* resolveWorktreeT3Home(yield* HostProcessWorkingDirectory);
-    // Trim before choosing: `--home-dir ""` is not a selection, and treating it
-    // as one would skip the worktree default and land on the shared home —
-    // exactly the outcome this precedence exists to prevent.
-    const resolvedT3Home =
-      (input.t3Home?.trim() || undefined) ??
-      worktreeHome ??
-      (hostEnvironment.T3CODE_HOME?.trim() || undefined);
     const env = yield* createDevRunnerEnv({
       mode: input.mode,
       baseEnv: hostEnvironment,

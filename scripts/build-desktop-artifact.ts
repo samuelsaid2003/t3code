@@ -13,6 +13,7 @@ import {
 } from "@electron/asar";
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
+import { DESKTOP_DISTRIBUTION_IDENTITY } from "@t3tools/shared/desktopDistributionIdentity";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -49,9 +50,10 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import sharp from "sharp";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
+const DESKTOP_APP_ID = DESKTOP_DISTRIBUTION_IDENTITY.appId;
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -327,6 +329,22 @@ export class DesktopDmgBackgroundSourceMissingError extends Schema.TaggedErrorCl
 ) {
   override get message(): string {
     return `Desktop ${this.channel} DMG background source is missing at ${this.sourcePath}`;
+  }
+}
+
+export class DesktopDmgBackgroundRasterizationError extends Schema.TaggedErrorClass<DesktopDmgBackgroundRasterizationError>()(
+  "DesktopDmgBackgroundRasterizationError",
+  {
+    channel: Schema.Literals(["latest", "nightly"]),
+    sourcePath: Schema.String,
+    targetPath: Schema.String,
+    width: Schema.Number,
+    height: Schema.Number,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Could not rasterize the ${this.channel} DMG background at ${this.width}x${this.height}.`;
   }
 }
 
@@ -1638,22 +1656,22 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
       // stdin, a port, a lock) would otherwise hang release CI until the job
       // times out with nothing useful in the log.
       Effect.timeout(BUNDLE_SELF_CHECK_TIMEOUT),
-      Effect.catchTag("TimeoutError", () =>
-        Effect.fail(
-          new BundleNotSelfContainedError({
-            exitCode: -1,
-            output: `The packaged bundle did not print its version within ${Duration.toSeconds(BUNDLE_SELF_CHECK_TIMEOUT)}s; it is hanging rather than failing to resolve.`,
-          }),
-        ),
-      ),
-      Effect.catchTag("BuildCommandFailedError", (error) =>
-        Effect.fail(
-          new BundleNotSelfContainedError({
-            exitCode: error.exitCode,
-            output: `${error.stderrTail ?? ""}${error.stdoutTail ?? ""}`.trim(),
-          }),
-        ),
-      ),
+      Effect.catchTags({
+        TimeoutError: () =>
+          Effect.fail(
+            new BundleNotSelfContainedError({
+              exitCode: -1,
+              output: `The packaged bundle did not print its version within ${Duration.toSeconds(BUNDLE_SELF_CHECK_TIMEOUT)}s; it is hanging rather than failing to resolve.`,
+            }),
+          ),
+        BuildCommandFailedError: (error) =>
+          Effect.fail(
+            new BundleNotSelfContainedError({
+              exitCode: error.exitCode,
+              output: `${error.stderrTail ?? ""}${error.stdoutTail ?? ""}`.trim(),
+            }),
+          ),
+      }),
     );
   },
 );
@@ -1808,7 +1826,7 @@ function stageMacIcons(stageResourcesDir: string, sourcePng: string, verbose: bo
 export const stageDesktopDmgBackground = Effect.fn("stageDesktopDmgBackground")(function* (
   stageResourcesDir: string,
   channel: "latest" | "nightly",
-  verbose: boolean,
+  _verbose: boolean,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -1826,15 +1844,22 @@ export const stageDesktopDmgBackground = Effect.fn("stageDesktopDmgBackground")(
       "dmg",
       `dmg-background-${channel}${output.suffix}.png`,
     );
-    yield* runCommand(
-      ChildProcess.make(
-        {},
-      )`sips -s format png -z ${output.height} ${output.width} ${sourcePath} --out ${targetPath}`,
-      {
-        label: `sips ${channel} DMG background${output.suffix || "@1x"}`,
-        verbose,
-      },
-    );
+    yield* Effect.tryPromise({
+      try: () =>
+        sharp(sourcePath)
+          .resize(output.width, output.height, { fit: "fill" })
+          .png()
+          .toFile(targetPath),
+      catch: (cause) =>
+        new DesktopDmgBackgroundRasterizationError({
+          channel,
+          sourcePath,
+          targetPath,
+          width: output.width,
+          height: output.height,
+          cause,
+        }),
+    });
   }
 });
 
@@ -1979,7 +2004,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
     Option.getOrUndefined(env.githubRepository)?.trim() ||
-    ""
+    DESKTOP_DISTRIBUTION_IDENTITY.updateRepository
   ).trim();
   if (!rawRepo) return undefined;
 
@@ -2038,7 +2063,7 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
+    ? DESKTOP_DISTRIBUTION_IDENTITY.nightlyProductName
     : (desktopPackageJson.productName ?? "T3 Code");
 }
 
@@ -2059,7 +2084,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: `${DESKTOP_DISTRIBUTION_IDENTITY.artifactPrefix}-\${version}-\${arch}.\${ext}`,
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [...DESKTOP_FILE_EXCLUSIONS],
     directories: {
@@ -2094,8 +2119,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "public.app-category.developer-tools",
       protocols: [
         {
-          name: "T3 Code",
-          schemes: ["t3code", "t3code-dev"],
+          name: DESKTOP_DISTRIBUTION_IDENTITY.baseName,
+          schemes: [
+            DESKTOP_DISTRIBUTION_IDENTITY.productionScheme,
+            DESKTOP_DISTRIBUTION_IDENTITY.developmentScheme,
+          ],
         },
       ],
       ...(macPasskeySigning
@@ -2133,7 +2161,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "linux") {
     buildConfig.linux = {
       target: [target],
-      executableName: "t3code",
+      executableName: DESKTOP_DISTRIBUTION_IDENTITY.productionLinuxId,
       icon: "icons",
       category: "Development",
       // electron-builder turns these into MimeType=x-scheme-handler/<scheme>;
@@ -2141,13 +2169,16 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // t3code:// OAuth callbacks to the app.
       protocols: [
         {
-          name: "T3 Code",
-          schemes: ["t3code", "t3code-dev"],
+          name: DESKTOP_DISTRIBUTION_IDENTITY.baseName,
+          schemes: [
+            DESKTOP_DISTRIBUTION_IDENTITY.productionScheme,
+            DESKTOP_DISTRIBUTION_IDENTITY.developmentScheme,
+          ],
         },
       ],
       desktop: {
         entry: {
-          StartupWMClass: "t3code",
+          StartupWMClass: DESKTOP_DISTRIBUTION_IDENTITY.productionLinuxId,
         },
       },
     };
@@ -2923,7 +2954,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
       : undefined;
   const stagePackageJson: StagePackageJson = {
-    name: "t3code",
+    name: DESKTOP_DISTRIBUTION_IDENTITY.packageName,
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,

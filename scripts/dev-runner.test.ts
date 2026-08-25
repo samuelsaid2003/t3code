@@ -1281,6 +1281,27 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         }).pipe(Effect.scoped),
       );
 
+      it.effect("refuses the live T3 home before spawning a dev process", () =>
+        Effect.gen(function* () {
+          const root = yield* makeWorktree;
+          const error = yield* runDevRunnerWithInput({
+            ...devServerInput,
+            t3Home: NodePath.join(NodeOS.homedir(), ".t3"),
+          }).pipe(
+            Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer)),
+            Effect.provideService(HostProcessPlatform, "darwin"),
+            Effect.provideService(HostProcessWorkingDirectory, root),
+            Effect.flip,
+          );
+
+          assert.equal(error._tag, "DevRunnerLiveHomeError");
+          if (error._tag === "DevRunnerLiveHomeError") {
+            assert.equal(error.homePath, NodePath.join(NodeOS.homedir(), ".t3"));
+            assert.include(error.message, "Omit --home-dir");
+          }
+        }).pipe(Effect.scoped),
+      );
+
       it.effect("treats a blank --home-dir as unset rather than as a selection", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;

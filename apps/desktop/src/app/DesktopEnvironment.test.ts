@@ -68,8 +68,10 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.serverRoot, "/repo");
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
-      assert.equal(environment.linuxWmClass, "t3code-dev");
+      assert.equal(environment.appUserModelId, "com.samuelsaid.t3code.dev");
+      assert.equal(environment.linuxWmClass, "t3code-samuel-dev");
+      assert.equal(environment.displayName, "T3 Code (Samuel Dev)");
+      assert.equal(environment.userDataDirName, "t3code-samuel-dev");
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
         Option.some("http://localhost:5173/"),
@@ -125,8 +127,10 @@ describe("DesktopEnvironment", () => {
       );
       const production = yield* makeEnvironment();
 
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(development.stateDir, "/Users/alice/.t3-samuel/dev");
+      assert.equal(production.stateDir, "/Users/alice/.t3-samuel/userdata");
+      assert.equal(production.displayName, "T3 Code (Samuel)");
+      assert.equal(production.appUserModelId, "com.samuelsaid.t3code");
     }),
   );
 

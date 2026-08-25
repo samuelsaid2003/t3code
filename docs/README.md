@@ -37,6 +37,7 @@ policy in [CONTRIBUTING.md](../CONTRIBUTING.md); agent rules in [AGENTS.md](../A
 - [T3 Connect](./internals/t3-connect.md)
 - [CI gates](./internals/ci.md)
 - [Engineering work artifacts](./internals/work-artifacts.md)
+- [Samuel fork desktop distribution](./internals/fork-desktop-distribution.md)
 
 ### Runbooks
 

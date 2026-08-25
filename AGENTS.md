@@ -153,3 +153,20 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Samuel's fork
+
+<!-- FORK-SPECIFIC INSTRUCTIONS START -->
+
+- `origin` is `samuelsaid2003/t3code` and is the only writable release remote. Treat `upstream` (`pingdotgg/t3code`) as read-only and never push commits or tags to it.
+- Work directly on `main` unless Samuel explicitly requests a branch. Do not create branches or worktrees as a default workflow.
+- Do not push, tag, publish, or create a release unless Samuel explicitly asks for that external action.
+- Protect the installed T3 Code Alpha environment and every active provider session. Its live state is `~/.t3/userdata`; keep all development and packaged-fork processes away from it.
+- Never launch development with `--home-dir ~/.t3` (or its expanded absolute path). An explicit T3 home stores desktop state in its `userdata` child, so that value targets Alpha's live database.
+- Use the checkout's gitignored `.t3` state for development. Import test data only through a consistent snapshot, never by pointing a process at Alpha's database.
+- The packaged fork must use its own app name, bundle identifier, URL scheme, Electron user-data directory, T3 home, ports, signing identity, and update feed so it can coexist with Alpha.
+- Preserve backward-compatible migrations for threads, projects, connections, credentials, and provider-session history. Any import from Alpha into the fork is an explicit, one-way, snapshot-based operation.
+- Keep fork-owned desktop packaging and update decisions in `docs/internals/`; do not rely on the upstream release workflow's npm, relay, or hosted-service infrastructure.
+- Do not open Chromium developer tools automatically. Open them only when debugging was explicitly requested.
+
+<!-- FORK-SPECIFIC INSTRUCTIONS END -->
