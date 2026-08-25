@@ -879,6 +879,18 @@ export interface MacPasskeySigningConfiguration {
   readonly provisioningProfilePath: string;
 }
 
+const MAC_PASSKEY_SIGNING_ENV_KEYS = [
+  "T3CODE_APPLE_TEAM_ID",
+  "T3CODE_MACOS_PROVISIONING_PROFILE",
+  "T3CODE_CLERK_PASSKEY_RP_DOMAINS",
+] as const;
+
+export function shouldConfigureMacPasskeySigning(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return MAC_PASSKEY_SIGNING_ENV_KEYS.some((key) => (env[key]?.trim().length ?? 0) > 0);
+}
+
 export const InvalidMacPasskeyRpDomainReason = Schema.Literals([
   "empty",
   "scheme-not-allowed",
@@ -2900,10 +2912,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
 
+  const macSigningEnv =
+    options.platform === "mac" && options.signed ? loadRepoEnv({ repoRoot }) : undefined;
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed
+    macSigningEnv && shouldConfigureMacPasskeySigning(macSigningEnv)
       ? yield* Effect.try({
-          try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
+          try: () => resolveMacPasskeySigningConfiguration(macSigningEnv),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
         })
       : undefined;

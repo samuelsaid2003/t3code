@@ -47,6 +47,7 @@ import {
   resolveMockUpdateServerPort,
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
+  shouldConfigureMacPasskeySigning,
   stageLinuxIconSize,
   stageDesktopDmgBackground,
   stageResourceMonitor,
@@ -994,6 +995,30 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
   });
 
+  it("keeps passkey entitlements opt-in for signed macOS builds", () => {
+    assert.isFalse(shouldConfigureMacPasskeySigning({}));
+    assert.isFalse(
+      shouldConfigureMacPasskeySigning({
+        T3CODE_CLERK_PUBLISHABLE_KEY: `pk_test_${btoa("example.clerk.accounts.dev$")}`,
+      }),
+    );
+    assert.isTrue(
+      shouldConfigureMacPasskeySigning({
+        T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
+      }),
+    );
+    assert.isTrue(
+      shouldConfigureMacPasskeySigning({
+        T3CODE_APPLE_TEAM_ID: "ABC1234567",
+      }),
+    );
+    assert.isTrue(
+      shouldConfigureMacPasskeySigning({
+        T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
+      }),
+    );
+  });
+
   it("normalizes explicit macOS passkey RP domains and renders required entitlements", () => {
     const configuration = resolveMacPasskeySigningConfiguration({
       T3CODE_APPLE_TEAM_ID: "ABC1234567",
@@ -1105,6 +1130,28 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(config.appId, "com.samuelsaid.t3code");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
+      assert.deepStrictEqual(mac.protocols, [
+        { name: "T3 Code (Samuel)", schemes: ["t3code-samuel", "t3code-samuel-dev"] },
+      ]);
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect("signs macOS builds without restricted passkey entitlements by default", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        undefined,
+      );
+
+      const mac = config.mac as Record<string, unknown>;
+      assert.equal(config.appId, "com.samuelsaid.t3code");
+      assert.notProperty(mac, "entitlements");
+      assert.notProperty(mac, "provisioningProfile");
       assert.deepStrictEqual(mac.protocols, [
         { name: "T3 Code (Samuel)", schemes: ["t3code-samuel", "t3code-samuel-dev"] },
       ]);

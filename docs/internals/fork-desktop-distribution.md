@@ -99,11 +99,17 @@ Developer ID Application certificate, hardened runtime, and Apple notarization. 
 are verification artifacts only.
 
 The fork release workflow expects the signing certificate and notarization credentials as encrypted
-GitHub repository secrets: `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
-`APPLE_API_ISSUER`, and `MACOS_PROVISIONING_PROFILE`. `APPLE_TEAM_ID` and
-`CLERK_PASSKEY_RP_DOMAINS` are repository variables. Never put their values in source, workflow YAML,
-issues, logs, or chat. The provisioning profile and passkey domain are needed only while the native
-Clerk associated-domain entitlement remains enabled.
+GitHub repository secrets: `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and
+`APPLE_API_ISSUER`. `APPLE_TEAM_ID` is a repository variable. Never put their values in source,
+workflow YAML, issues, logs, or chat.
+
+Native macOS Clerk passkeys are intentionally disabled for the fork because the official T3 Clerk
+associated-domain file does not authorize the fork's Apple team and bundle ID. Standard signing,
+notarization, provider authentication, and local or remote pairing do not require that entitlement.
+If the fork later owns a compatible Clerk domain, opt in by supplying `T3CODE_APPLE_TEAM_ID`,
+`T3CODE_MACOS_PROVISIONING_PROFILE`, and either `T3CODE_CLERK_PASSKEY_RP_DOMAINS` or the matching
+Clerk publishable key. Partial passkey configuration fails the build rather than silently emitting
+incorrect entitlements.
 
 The upstream release workflow also publishes npm, relay, and hosted-service components. It is not the
 fork's distribution mechanism and must remain guarded from running against this repository. Fork
