@@ -79,14 +79,17 @@ and provider-instance environment secrets. Provider CLI logins remain available 
 normal user-level configuration on the Mac.
 
 The import deliberately excludes Alpha's environment ID, server signing keys, auth and phone pairing
-sessions, Clerk tokens, cloud/T3 Connect credentials, runtime descriptors, desktop exposure settings,
-and logs. Those values identify a running environment rather than durable history. The fork therefore
-gets a new server identity and requires fresh client pairing.
+sessions, Clerk tokens, cloud/T3 Connect credentials, desktop exposure settings, and logs. Those
+values identify a running environment rather than durable history. The fork therefore gets a new
+server identity and requires fresh client pairing.
 
-Provider processes cannot cross environments. A thread that was actively running at snapshot time
-remains active in Alpha, but its copied session cannot resume in the fork. Take the final import as
-close as possible to cutover, ideally after important Alpha turns settle. This is a point-in-time
-clone, not ongoing synchronization.
+Provider processes cannot cross environments, but their durable resume cursors are part of thread
+history. The import retains those cursors while forcing every copied provider binding to `stopped`
+and clearing active-turn and transient-error state. Launching the fork therefore does not attach to
+or interrupt an Alpha provider process; the next message in an imported thread explicitly reopens
+its native provider transcript. Do not send new messages to the same thread in both environments at
+once. Take the final import as close as possible to cutover, ideally after important Alpha turns
+settle. This is a point-in-time clone, not ongoing synchronization.
 
 ## Updates
 

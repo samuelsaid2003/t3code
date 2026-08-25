@@ -45,6 +45,19 @@ const createAlphaFixture = Effect.fn("createAlphaImportFixture")(function* (sour
       yield* sql`INSERT INTO orchestration_events
         (event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at, actor_kind, payload_json, metadata_json)
         VALUES ('event-1', 'thread', 'thread-1', 0, 'thread.created', '2026-08-01', 'user', '{}', '{}')`;
+      yield* sql`INSERT INTO provider_session_runtime
+        (thread_id, provider_name, provider_instance_id, adapter_key, runtime_mode, status, last_seen_at, resume_cursor_json, runtime_payload_json)
+        VALUES (
+          'thread-1',
+          'codex',
+          'codex',
+          'codex',
+          'auto',
+          'running',
+          '2026-08-01',
+          '{"threadId":"provider-thread-1"}',
+          '{"cwd":"/tmp/imported","activeTurnId":"turn-1","lastError":"stale"}'
+        )`;
       yield* sql`INSERT INTO auth_sessions
         (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('alpha-session', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
@@ -116,19 +129,61 @@ it.layer(NodeServices.layer)("import-alpha-state", (it) => {
             const [auth] = yield* sql<{
               count: number;
             }>`SELECT COUNT(*) AS count FROM auth_sessions`;
-            return { text: message?.text, authCount: Number(auth?.count ?? 0) };
+            const [providerRuntime] = yield* sql<{
+              status: string;
+              resumeCursor: string | null;
+              cwd: string | null;
+              activeTurnId: string | null;
+              lastError: string | null;
+            }>`SELECT
+              status,
+              resume_cursor_json AS "resumeCursor",
+              json_extract(runtime_payload_json, '$.cwd') AS cwd,
+              json_extract(runtime_payload_json, '$.activeTurnId') AS "activeTurnId",
+              json_extract(runtime_payload_json, '$.lastError') AS "lastError"
+            FROM provider_session_runtime
+            WHERE thread_id = 'thread-1'`;
+            return {
+              text: message?.text,
+              authCount: Number(auth?.count ?? 0),
+              providerRuntime,
+            };
           }),
         );
-        assert.deepStrictEqual(imported, { text: "preserved", authCount: 0 });
+        assert.deepStrictEqual(imported, {
+          text: "preserved",
+          authCount: 0,
+          providerRuntime: {
+            status: "stopped",
+            resumeCursor: '{"threadId":"provider-thread-1"}',
+            cwd: "/tmp/imported",
+            activeTurnId: null,
+            lastError: null,
+          },
+        });
 
-        const [sourceAuth] = yield* withDatabase(
+        const source = yield* withDatabase(
           sourceDatabasePath,
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
-            return yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM auth_sessions`;
+            const [auth] = yield* sql<{
+              count: number;
+            }>`SELECT COUNT(*) AS count FROM auth_sessions`;
+            const [providerRuntime] = yield* sql<{
+              status: string;
+              activeTurnId: string | null;
+            }>`SELECT
+              status,
+              json_extract(runtime_payload_json, '$.activeTurnId') AS "activeTurnId"
+            FROM provider_session_runtime
+            WHERE thread_id = 'thread-1'`;
+            return { authCount: Number(auth?.count ?? 0), providerRuntime };
           }),
         );
-        assert.equal(Number(sourceAuth?.count ?? 0), 1);
+        assert.deepStrictEqual(source, {
+          authCount: 1,
+          providerRuntime: { status: "running", activeTurnId: "turn-1" },
+        });
 
         assert.equal(
           yield* fs.readFileString(path.join(destinationStateDir, "attachments", "image.txt")),

@@ -6,8 +6,9 @@
  *
  * The database is captured with SQLite VACUUM INTO, migrated and sanitized in
  * a sibling staging directory, then installed with a same-filesystem rename.
- * Server identity, auth sessions, cloud credentials, runtime descriptors, and
- * logs intentionally do not cross the boundary.
+ * Server identity, auth sessions, cloud credentials, live process state, and
+ * logs intentionally do not cross the boundary. Durable provider resume
+ * cursors do cross so imported threads can reopen their native transcripts.
  */
 
 // @effect-diagnostics nodeBuiltinImport:off - node:os resolves the two desktop distribution homes.
@@ -223,7 +224,20 @@ const sanitizeImportedDatabase = Effect.fn("importAlphaState.sanitizeDatabase")(
   const sql = yield* SqlClient.SqlClient;
   yield* sql.withTransaction(
     Effect.gen(function* () {
-      yield* sql`DELETE FROM provider_session_runtime`;
+      yield* sql`
+        UPDATE provider_session_runtime
+        SET
+          status = 'stopped',
+          runtime_payload_json = json_set(
+            CASE
+              WHEN runtime_payload_json IS NULL OR json_valid(runtime_payload_json) = 0 THEN '{}'
+              WHEN json_type(runtime_payload_json) <> 'object' THEN '{}'
+              ELSE runtime_payload_json
+            END,
+            '$.activeTurnId', NULL,
+            '$.lastError', NULL
+          )
+      `;
       yield* sql`DELETE FROM orchestration_command_receipts`;
       yield* sql`DELETE FROM auth_sessions`;
       yield* sql`DELETE FROM auth_pairing_links`;
