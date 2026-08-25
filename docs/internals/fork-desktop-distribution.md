@@ -56,9 +56,37 @@ under `~/.t3-samuel/userdata`. Import is an explicit, one-way operation performe
 server is using the destination. The Alpha source remains read-only and is captured with SQLite
 `VACUUM INTO` so the snapshot is consistent while Alpha is running.
 
-The imported database must pass the fork's migrations against a disposable copy before it is used by
-the packaged app. Secrets and settings are copied only when the corresponding connection flow needs
-them.
+Validate the complete import against disposable staging without installing it:
+
+```bash
+npm run import-alpha-state -- --validate-only
+```
+
+Install the snapshot immediately before the first fork launch:
+
+```bash
+npm run import-alpha-state
+```
+
+If fork state already exists, the command refuses to replace it. An intentional refresh uses
+`--replace`; the previous fork home is retained as a timestamped sibling backup and restored if the
+new directory cannot be installed.
+
+The imported database must pass this checkout's migrations and SQLite integrity check before the
+staged directory can replace anything. The import carries all projects, threads, messages, events,
+attachments, client preferences, keybindings, server settings, saved desktop connection metadata,
+and provider-instance environment secrets. Provider CLI logins remain available through their
+normal user-level configuration on the Mac.
+
+The import deliberately excludes Alpha's environment ID, server signing keys, auth and phone pairing
+sessions, Clerk tokens, cloud/T3 Connect credentials, runtime descriptors, desktop exposure settings,
+and logs. Those values identify a running environment rather than durable history. The fork therefore
+gets a new server identity and requires fresh client pairing.
+
+Provider processes cannot cross environments. A thread that was actively running at snapshot time
+remains active in Alpha, but its copied session cannot resume in the fork. Take the final import as
+close as possible to cutover, ideally after important Alpha turns settle. This is a point-in-time
+clone, not ongoing synchronization.
 
 ## Updates
 
@@ -69,6 +97,13 @@ desktop updater checks the feed but preserves the existing manual download-and-r
 Release artifacts intended for normal installation must use the permanent bundle ID and a consistent
 Developer ID Application certificate, hardened runtime, and Apple notarization. Local unsigned builds
 are verification artifacts only.
+
+The fork release workflow expects the signing certificate and notarization credentials as encrypted
+GitHub repository secrets: `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER`, and `MACOS_PROVISIONING_PROFILE`. `APPLE_TEAM_ID` and
+`CLERK_PASSKEY_RP_DOMAINS` are repository variables. Never put their values in source, workflow YAML,
+issues, logs, or chat. The provisioning profile and passkey domain are needed only while the native
+Clerk associated-domain entitlement remains enabled.
 
 The upstream release workflow also publishes npm, relay, and hosted-service components. It is not the
 fork's distribution mechanism and must remain guarded from running against this repository. Fork
