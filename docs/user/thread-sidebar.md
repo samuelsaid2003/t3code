@@ -15,6 +15,20 @@ If reordering is unavailable for one environment, update the T3 Code server runn
 environment. Older servers can still pin and unpin threads, but do not understand synced ordering;
 their pinned threads keep the default newest-first order below the ones you have arranged.
 
+## Viewing multiple threads on desktop
+
+In the desktop app, drag a thread from the sidebar toward an edge of the conversation area to open
+it beside the current thread. T3 Code supports two columns, two rows, or a four-slot grid with up
+to four visible threads.
+
+Clicking a thread in the sidebar still opens it in the focused pane. Drag pane headers onto one
+another to swap them, or drag a header into the grid's empty slot to move it. Pane dividers can be
+resized and double-clicked to return to an even split. Double-click a pane header to maximize or
+restore it.
+
+Closing a pane closes only that view. It does not stop, settle, archive, or delete the thread. Pane
+arrangement is session-only and returns to one thread when the desktop app reloads or restarts.
+
 ## Environment artwork
 
 Dev and Nightly environments can identify themselves with artwork at the top of the sidebar and in

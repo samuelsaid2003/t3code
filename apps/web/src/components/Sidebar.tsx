@@ -1,21 +1,13 @@
 import { autoAnimate } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+import { useDndMonitor, useDraggable, type DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
   arrayMove,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
   canSnooze,
@@ -32,6 +24,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
+import type { ThreadWorkspaceDragData } from "./thread-workspace/ThreadWorkspaceDndProvider";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
@@ -118,6 +111,7 @@ import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
   resolveThreadRouteTarget,
+  type ThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
@@ -449,11 +443,19 @@ type SortablePinnedRowBag = Pick<
 
 function SortablePinnedThreadRow(props: {
   id: string;
+  label: string;
+  target: ThreadRouteTarget;
   children: (bag: SortablePinnedRowBag) => ReactNode;
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.id,
     animateLayoutChanges: animatePinnedLayoutChanges,
+    data: {
+      type: "workspace-thread",
+      target: props.target,
+      label: props.label,
+      pinnedSortable: true,
+    } satisfies ThreadWorkspaceDragData,
   });
   return props.children({ listeners, setNodeRef, transform, transition, isDragging });
 }
@@ -478,6 +480,15 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
 }) {
   const { composer, draftId, onDiscard, onNavigate, session } = props;
   const promptPreview = composer.prompt.trim().split("\n", 1)[0] ?? "";
+  const workspaceDrag = useDraggable({
+    id: `workspace-draft:${draftId}`,
+    data: {
+      type: "workspace-thread",
+      target: { kind: "draft", draftId },
+      label: promptPreview || props.projectTitle || "Draft thread",
+    } satisfies ThreadWorkspaceDragData,
+    disabled: !isElectron,
+  });
   // images mirrors persistedAttachments once rehydration finishes; before
   // that only the persisted list is populated, hence max not sum.
   const attachmentCount =
@@ -513,7 +524,16 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     [draftId, onDiscard],
   );
   return (
-    <li className="list-none py-0.5">
+    <li
+      ref={workspaceDrag.setNodeRef}
+      style={
+        workspaceDrag.transform
+          ? { transform: CSS.Translate.toString(workspaceDrag.transform) }
+          : undefined
+      }
+      {...workspaceDrag.listeners}
+      className={cn("list-none py-0.5", workspaceDrag.isDragging && "z-20 opacity-70")}
+    >
       <div
         role="button"
         tabIndex={0}
@@ -776,6 +796,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     [thread.environmentId, thread.id],
   );
   const threadKey = scopedThreadKey(threadRef);
+  const workspaceDrag = useDraggable({
+    id: `workspace-thread:${threadKey}`,
+    data: {
+      type: "workspace-thread",
+      target: { kind: "server", threadRef },
+      label: thread.title || "Untitled thread",
+    } satisfies ThreadWorkspaceDragData,
+    disabled: !isElectron || props.sortable !== undefined || isRenaming,
+  });
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
@@ -1219,8 +1248,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   if (variant === "slim") {
     return (
       <li
+        ref={workspaceDrag.setNodeRef}
+        style={
+          workspaceDrag.transform
+            ? { transform: CSS.Translate.toString(workspaceDrag.transform) }
+            : undefined
+        }
+        {...workspaceDrag.listeners}
         data-thread-item
-        className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]"
+        className={cn(
+          "list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]",
+          workspaceDrag.isDragging && "z-20 opacity-70",
+        )}
       >
         <Tooltip>
           <TooltipTrigger
@@ -1368,19 +1407,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   return (
     <li
       data-thread-item
-      ref={sortable?.setNodeRef}
+      ref={sortable?.setNodeRef ?? workspaceDrag.setNodeRef}
       style={
         sortable
           ? {
               transform: CSS.Translate.toString(sortable.transform),
               transition: sortable.transition,
             }
-          : undefined
+          : workspaceDrag.transform
+            ? { transform: CSS.Translate.toString(workspaceDrag.transform) }
+            : undefined
       }
-      {...(sortable?.listeners ?? {})}
+      {...(sortable?.listeners ?? workspaceDrag.listeners)}
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]",
-        sortable?.isDragging && "z-20 opacity-80",
+        (sortable?.isDragging || workspaceDrag.isDragging) && "z-20 opacity-80",
       )}
     >
       <Tooltip>
@@ -2555,9 +2596,6 @@ export default function Sidebar() {
   // win) and ANY membership change (new pin, unpin, snooze/wake) also
   // release it: the override can't say where members it never saw belong,
   // and holding it would launder a stale order into later drags.
-  const pinnedDndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-  );
   const [optimisticPinnedOrder, setOptimisticPinnedOrder] = useState<{
     readonly order: readonly string[];
     /** pinOrderKey per thread as of the drop — the baseline that tells a
@@ -2656,6 +2694,16 @@ export default function Sidebar() {
 
   const handlePinnedDragEnd = useCallback(
     (event: DragEndEvent) => {
+      const activeData = event.active.data.current as ThreadWorkspaceDragData | undefined;
+      const overData = event.over?.data.current as ThreadWorkspaceDragData | undefined;
+      if (
+        activeData?.type !== "workspace-thread" ||
+        activeData.pinnedSortable !== true ||
+        overData?.type !== "workspace-thread" ||
+        overData.pinnedSortable !== true
+      ) {
+        return;
+      }
       const activeKey = String(event.active.id);
       const overKey = event.over === null ? null : String(event.over.id);
       if (overKey === null || activeKey === overKey) return;
@@ -2720,6 +2768,7 @@ export default function Sidebar() {
     },
     [orderedPinnedThreads, reorderPinnedThread, reorderablePinnedKeys],
   );
+  useDndMonitor({ onDragEnd: handlePinnedDragEnd });
   // One snooze per thread at a time — same double-dispatch guard as settle.
   const snoozingThreadKeysRef = useRef(new Set<string>());
   const performSnooze = useCallback(
@@ -3768,41 +3817,38 @@ export default function Sidebar() {
                     />,
                     pinnedThreads.length > 0 ? (
                       <li key="pinned-dnd" className="list-none">
-                        <DndContext
-                          sensors={pinnedDndSensors}
-                          collisionDetection={closestCenter}
-                          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                          onDragEnd={handlePinnedDragEnd}
+                        <SortableContext
+                          items={orderedPinnedThreads
+                            .map((thread) =>
+                              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                            )
+                            .filter((threadKey) => reorderablePinnedKeys.has(threadKey))}
+                          strategy={verticalListSortingStrategy}
                         >
-                          <SortableContext
-                            items={orderedPinnedThreads
-                              .map((thread) =>
-                                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-                              )
-                              .filter((threadKey) => reorderablePinnedKeys.has(threadKey))}
-                            strategy={verticalListSortingStrategy}
+                          <ul
+                            role="list"
+                            aria-label="Pinned threads"
+                            className="flex flex-col gap-px"
                           >
-                            <ul
-                              role="list"
-                              aria-label="Pinned threads"
-                              className="flex flex-col gap-px"
-                            >
-                              {orderedPinnedThreads.map((thread) => {
-                                const threadKey = scopedThreadKey(
-                                  scopeThreadRef(thread.environmentId, thread.id),
-                                );
-                                if (!reorderablePinnedKeys.has(threadKey)) {
-                                  return renderThreadRow(thread, "pinned");
-                                }
-                                return (
-                                  <SortablePinnedThreadRow key={threadKey} id={threadKey}>
-                                    {(bag) => renderThreadRow(thread, "pinned", bag)}
-                                  </SortablePinnedThreadRow>
-                                );
-                              })}
-                            </ul>
-                          </SortableContext>
-                        </DndContext>
+                            {orderedPinnedThreads.map((thread) => {
+                              const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+                              const threadKey = scopedThreadKey(threadRef);
+                              if (!reorderablePinnedKeys.has(threadKey)) {
+                                return renderThreadRow(thread, "pinned");
+                              }
+                              return (
+                                <SortablePinnedThreadRow
+                                  key={threadKey}
+                                  id={threadKey}
+                                  label={thread.title || "Untitled thread"}
+                                  target={{ kind: "server", threadRef }}
+                                >
+                                  {(bag) => renderThreadRow(thread, "pinned", bag)}
+                                </SortablePinnedThreadRow>
+                              );
+                            })}
+                          </ul>
+                        </SortableContext>
                       </li>
                     ) : null,
                   ];

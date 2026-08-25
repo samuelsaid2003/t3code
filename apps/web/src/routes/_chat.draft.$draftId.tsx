@@ -15,6 +15,8 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
+import { isElectron } from "../env";
+import { ThreadWorkspaceRouteTarget } from "../components/thread-workspace/ThreadWorkspaceHost";
 
 function DraftChatThreadRouteView() {
   const navigate = useNavigate();
@@ -77,6 +79,10 @@ function DraftChatThreadRouteView() {
 
   if (!draftSession) {
     return null;
+  }
+
+  if (isElectron) {
+    return <ThreadWorkspaceRouteTarget target={{ kind: "draft", draftId }} />;
   }
 
   return (

@@ -15,6 +15,8 @@ import {
 } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
+import { isElectron } from "../env";
+import { ThreadWorkspaceRouteTarget } from "../components/thread-workspace/ThreadWorkspaceHost";
 
 function ChatThreadRouteView() {
   const navigate = useNavigate();
@@ -78,9 +80,18 @@ function ChatThreadRouteView() {
     return null;
   }
 
+  const renderThread =
+    renderState === "ready" || (renderState === "loading" && serverThreadShell !== null);
+
+  if (isElectron) {
+    return renderThread ? (
+      <ThreadWorkspaceRouteTarget target={{ kind: "server", threadRef }} />
+    ) : null;
+  }
+
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
-      {renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
+      {renderThread ? (
         <ChatView
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}
