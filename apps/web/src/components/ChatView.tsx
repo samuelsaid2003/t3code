@@ -71,7 +71,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -137,8 +137,8 @@ import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
-  selectActiveRightPanel,
   selectActiveRightPanelSurface,
+  selectSelectedRightPanelSurface,
   selectThreadRightPanelState,
   type RightPanelSurface,
   updatePullRequestTabStatus,
@@ -359,6 +359,7 @@ import {
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { useThreadWorkspaceRightPanelPortal } from "./thread-workspace/ThreadWorkspaceRightPanelPortal";
 import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "./ui/button";
@@ -1454,6 +1455,7 @@ function ChatViewContent(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const workspaceRightPanelPortal = useThreadWorkspaceRightPanelPortal();
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
@@ -1684,16 +1686,23 @@ function ChatViewContent(props: ChatViewProps) {
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   }
   const timelineAnchorMessageId = timelineAnchor.messageId;
-  const activeRightPanelKind = useRightPanelStore((state) =>
-    selectActiveRightPanel(state.byThreadKey, activeThreadRef),
-  );
-  const diffOpen = activeRightPanelKind === "diff";
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
-  const activeRightPanelSurface = useRightPanelStore((state) =>
+  const storedActiveRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
   );
+  const selectedRightPanelSurface = useRightPanelStore((state) =>
+    selectSelectedRightPanelSurface(state.byThreadKey, activeThreadRef),
+  );
+  const usesWorkspaceRightPanel =
+    workspacePane && !shouldUseRightPanelSheet && workspaceRightPanelPortal?.target != null;
+  const activeRightPanelSurface =
+    usesWorkspaceRightPanel && workspaceRightPanelPortal.isOpen
+      ? selectedRightPanelSurface
+      : storedActiveRightPanelSurface;
+  const activeRightPanelKind = activeRightPanelSurface?.kind ?? null;
+  const diffOpen = activeRightPanelKind === "diff";
   const [pullRequestTabStatuses, setPullRequestTabStatuses] = useState<
     Record<string, PullRequestTabStatus>
   >({});
@@ -1738,11 +1747,36 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
-  const visibleRightPanelOpen = workspaceFocused && rightPanelOpen;
+  const visibleRightPanelOpen =
+    workspaceFocused &&
+    (usesWorkspaceRightPanel ? workspaceRightPanelPortal.isOpen : rightPanelOpen);
   const canMaximizeRightPanel = visibleRightPanelOpen && !shouldUseRightPanelSheet;
   const rightPanelMaximized =
     canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
   const inlineRightPanelOwnsTitleBar = visibleRightPanelOpen && !shouldUseRightPanelSheet;
+  const usesWorkspaceRightPanelPortal =
+    usesWorkspaceRightPanel &&
+    workspaceFocused &&
+    visibleRightPanelOpen &&
+    workspaceRightPanelPortal.target != null;
+
+  useLayoutEffect(() => {
+    if (!usesWorkspaceRightPanel || !workspaceFocused || !rightPanelOpen) return;
+    workspaceRightPanelPortal.show();
+  }, [rightPanelOpen, usesWorkspaceRightPanel, workspaceFocused, workspaceRightPanelPortal]);
+
+  useLayoutEffect(() => {
+    if (!usesWorkspaceRightPanelPortal || !workspaceRightPanelPortal) return;
+    workspaceRightPanelPortal.reportPresentation(routeThreadKey, rightPanelMaximized);
+    return () => {
+      workspaceRightPanelPortal.reportPresentation(routeThreadKey, null);
+    };
+  }, [
+    rightPanelMaximized,
+    routeThreadKey,
+    usesWorkspaceRightPanelPortal,
+    workspaceRightPanelPortal,
+  ]);
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -3459,8 +3493,9 @@ function ChatViewContent(props: ChatViewProps) {
     if (activeThreadRef) {
       setMaximizedRightPanelThreadKey(null);
       useRightPanelStore.getState().close(activeThreadRef);
+      if (usesWorkspaceRightPanel) workspaceRightPanelPortal.close();
     }
-  }, [activeThreadRef]);
+  }, [activeThreadRef, usesWorkspaceRightPanel, workspaceRightPanelPortal]);
   const addTerminalSurface = useCallback(() => {
     if (!activeThreadRef || !activeThreadId || !activeProject) return;
     const cwd = gitCwd ?? activeProject.workspaceRoot;
@@ -3595,12 +3630,23 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const toggleRightPanel = useCallback(() => {
     if (!activeThreadRef) return;
-    if (rightPanelOpen) {
+    if (visibleRightPanelOpen) {
       closePreviewPanel();
       return;
     }
+    if (usesWorkspaceRightPanel) {
+      useRightPanelStore.getState().show(activeThreadRef);
+      workspaceRightPanelPortal.show();
+      return;
+    }
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
-  }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
+  }, [
+    activeThreadRef,
+    closePreviewPanel,
+    usesWorkspaceRightPanel,
+    visibleRightPanelOpen,
+    workspaceRightPanelPortal,
+  ]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
     setMaximizedRightPanelThreadKey((threadKey) =>
@@ -6499,6 +6545,15 @@ function ChatViewContent(props: ChatViewProps) {
       {panelToggleControls}
     </div>
   );
+  const workspaceRightPanelLayoutControls = (
+    <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <RightPanelMaximizeControl
+        maximized={rightPanelMaximized}
+        onToggle={toggleRightPanelMaximized}
+      />
+      {panelToggleControls}
+    </div>
+  );
   const rightPanelContent = activeThreadRef ? (
     activeRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
@@ -6610,6 +6665,48 @@ function ChatViewContent(props: ChatViewProps) {
       </Suspense>
     ) : null
   ) : null;
+  const inlineRightPanel =
+    !shouldUseRightPanelSheet && visibleRightPanelOpen && activeThreadRef ? (
+      <RightPanelTabs
+        mode="inline"
+        maximized={rightPanelMaximized}
+        {...(usesWorkspaceRightPanelPortal
+          ? {
+              layoutControls: workspaceRightPanelLayoutControls,
+              resizeContainer: workspaceRightPanelPortal.resizeContainer,
+            }
+          : {})}
+        surfaces={rightPanelState.surfaces}
+        activeSurfaceId={activeRightPanelSurface?.id ?? null}
+        pendingSurfaceIds={pendingFileSurfaceIds}
+        previewSessions={activePreviewState.sessions}
+        desktopByTabId={activePreviewState.desktopByTabId}
+        previewRuntimeTabId={resolvePreviewRuntimeTabId}
+        terminalLabelsById={activeTerminalLabelsById}
+        onActivate={activateRightPanelSurface}
+        onCloseSurface={closeRightPanelSurface}
+        onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
+        onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
+        onCloseAllSurfaces={closeAllRightPanelSurfaces}
+        onCopyFilePath={copyRightPanelFilePath}
+        onAddBrowser={createBrowserSurface}
+        onAddTerminal={addTerminalSurface}
+        onAddDiff={addDiffSurface}
+        onAddFiles={addFilesSurface}
+        onAddPullRequest={addPullRequestSurface}
+        onAddAgents={addAgentsSurface}
+        browserAvailable={isPreviewSupportedInRuntime()}
+        terminalAvailable={activeProject !== null}
+        diffAvailable={isServerThread && isGitRepo}
+        filesAvailable={activeProject !== null}
+        pullRequestAvailable={pullRequestSurfaceAvailable}
+        agentsAvailable
+        pullRequestStatuses={pullRequestTabStatuses}
+        liveAgentCount={agentPanelModel.liveCount}
+      >
+        {rightPanelContent}
+      </RightPanelTabs>
+    ) : null;
 
   const workspaceFileDropHandlers = makeWorkspaceFileDropHandlers({
     setDragActive: setIsWorkspaceFileDragActive,
@@ -6620,7 +6717,9 @@ function ChatViewContent(props: ChatViewProps) {
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
-      {visibleRightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls : null}
+      {visibleRightPanelOpen && !shouldUseRightPanelSheet && !usesWorkspaceRightPanelPortal
+        ? panelLayoutControls
+        : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -7046,41 +7145,10 @@ function ChatViewContent(props: ChatViewProps) {
         ))}
       </div>
 
-      {!shouldUseRightPanelSheet && visibleRightPanelOpen && activeThreadRef ? (
-        <RightPanelTabs
-          mode="inline"
-          maximized={rightPanelMaximized}
-          surfaces={rightPanelState.surfaces}
-          activeSurfaceId={activeRightPanelSurface?.id ?? null}
-          pendingSurfaceIds={pendingFileSurfaceIds}
-          previewSessions={activePreviewState.sessions}
-          desktopByTabId={activePreviewState.desktopByTabId}
-          previewRuntimeTabId={resolvePreviewRuntimeTabId}
-          terminalLabelsById={activeTerminalLabelsById}
-          onActivate={activateRightPanelSurface}
-          onCloseSurface={closeRightPanelSurface}
-          onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
-          onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
-          onCloseAllSurfaces={closeAllRightPanelSurfaces}
-          onCopyFilePath={copyRightPanelFilePath}
-          onAddBrowser={createBrowserSurface}
-          onAddTerminal={addTerminalSurface}
-          onAddDiff={addDiffSurface}
-          onAddFiles={addFilesSurface}
-          onAddPullRequest={addPullRequestSurface}
-          onAddAgents={addAgentsSurface}
-          browserAvailable={isPreviewSupportedInRuntime()}
-          terminalAvailable={activeProject !== null}
-          diffAvailable={isServerThread && isGitRepo}
-          filesAvailable={activeProject !== null}
-          pullRequestAvailable={pullRequestSurfaceAvailable}
-          agentsAvailable
-          pullRequestStatuses={pullRequestTabStatuses}
-          liveAgentCount={agentPanelModel.liveCount}
-        >
-          {rightPanelContent}
-        </RightPanelTabs>
-      ) : null}
+      {!usesWorkspaceRightPanelPortal ? inlineRightPanel : null}
+      {usesWorkspaceRightPanelPortal && activeThreadRef && workspaceRightPanelPortal?.target
+        ? createPortal(inlineRightPanel, workspaceRightPanelPortal.target)
+        : null}
       {shouldUseRightPanelSheet && visibleRightPanelOpen && activeThreadRef ? (
         <RightPanelSheet open onClose={closePreviewPanel}>
           <RightPanelTabs

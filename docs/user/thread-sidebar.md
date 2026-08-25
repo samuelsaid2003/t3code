@@ -31,6 +31,12 @@ it. Pane dividers can be resized and double-clicked to return to an even split. 
 header to maximize or restore it. An unfocused pane keeps its conversation header in place at
 reduced opacity, so switching panes does not move the conversation content.
 
+The right panel stays docked to the right side of the full workspace rather than opening inside an
+individual pane. Its width can be resized while the remaining space is redistributed across the
+thread panes. Once open, the panel stays open as focus moves between panes; a thread with no panel
+tabs shows the surface launcher. Each thread keeps its own Files, Diff, Terminal, Browser, Pull
+request, and Agents tabs.
+
 Closing a pane closes only that view. It does not stop, settle, archive, or delete the thread. When
 only one pane remains, the group dissolves. Pane arrangement and the saved group are session-only
 and return to one thread when the desktop app reloads or restarts.

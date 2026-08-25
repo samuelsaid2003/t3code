@@ -22,6 +22,7 @@ import {
   memo,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -52,6 +53,11 @@ import type {
   ThreadWorkspaceDragData,
   ThreadWorkspaceDropData,
 } from "./ThreadWorkspaceDndProvider";
+import {
+  ThreadWorkspaceRightPanelPortalProvider,
+  type ThreadWorkspaceRightPanelPresentation,
+  updateThreadWorkspaceRightPanelPresentation,
+} from "./ThreadWorkspaceRightPanelPortal";
 
 const FALLBACK_PANE_ID = "thread-pane-route-fallback";
 
@@ -500,6 +506,11 @@ export function ThreadWorkspace({ routeTarget }: { readonly routeTarget: ThreadR
   const maximizedPaneId = useThreadWorkspaceStore((state) => state.maximizedPaneId);
   const syncRouteTarget = useThreadWorkspaceStore((state) => state.syncRouteTarget);
   const containerRef = useRef<HTMLDivElement>(null);
+  const paneAreaRef = useRef<HTMLDivElement>(null);
+  const [rightPanelPortalTarget, setRightPanelPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [rightPanelPresentation, setRightPanelPresentation] =
+    useState<ThreadWorkspaceRightPanelPresentation | null>(null);
   const routeTargetRef = useRef(routeTarget);
   const pendingRouteTargetKeyRef = useRef<string | null>(null);
   const routeTargetKey = threadWorkspaceTargetKey(routeTarget);
@@ -547,42 +558,87 @@ export function ThreadWorkspace({ routeTarget }: { readonly routeTarget: ThreadR
     : renderedPanes;
   const effectiveLayout = maximizedPaneId ? "single" : layout;
   const showGridPlaceholder = effectiveLayout === "grid" && visiblePanes.length === 3;
+  const rightPanelMaximized = rightPanelPresentation?.maximized === true;
+  const reportRightPanelPresentation = useCallback(
+    (ownerKey: string, maximized: boolean | null) => {
+      setRightPanelPresentation((current) =>
+        updateThreadWorkspaceRightPanelPresentation(current, ownerKey, maximized),
+      );
+    },
+    [],
+  );
+  const showRightPanel = useCallback(() => setRightPanelOpen(true), []);
+  const closeRightPanel = useCallback(() => {
+    setRightPanelOpen(false);
+    setRightPanelPresentation(null);
+  }, []);
+  const rightPanelPortalValue = useMemo(
+    () => ({
+      target: rightPanelPortalTarget,
+      resizeContainer: containerRef.current,
+      isOpen: rightPanelOpen,
+      show: showRightPanel,
+      close: closeRightPanel,
+      reportPresentation: reportRightPanelPresentation,
+    }),
+    [
+      closeRightPanel,
+      reportRightPanelPresentation,
+      rightPanelOpen,
+      rightPanelPortalTarget,
+      showRightPanel,
+    ],
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
-      style={
-        {
-          "--thread-workspace-column-ratio": `${columnRatio}%`,
-          "--thread-workspace-row-ratio": `${rowRatio}%`,
-        } as CSSProperties
-      }
-    >
-      <div
-        className="grid min-h-0 min-w-0 flex-1 gap-px bg-border"
-        style={layoutStyle(effectiveLayout)}
-        data-testid="thread-workspace"
-        data-layout={effectiveLayout}
-      >
-        {visiblePanes.map((pane) => (
-          <ThreadPaneFrame
-            key={pane.id}
-            pane={pane}
-            focused={pane.id === effectiveFocusedPaneId}
-            maximized={pane.id === maximizedPaneId}
-            canClose={renderedPanes.length > 1}
-          />
-        ))}
-        {showGridPlaceholder ? <EmptyGridSlot /> : null}
+    <ThreadWorkspaceRightPanelPortalProvider value={rightPanelPortalValue}>
+      <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          ref={paneAreaRef}
+          className={cn("relative min-h-0 min-w-0 flex-1", rightPanelMaximized && "hidden")}
+          style={
+            {
+              "--thread-workspace-column-ratio": `${columnRatio}%`,
+              "--thread-workspace-row-ratio": `${rowRatio}%`,
+            } as CSSProperties
+          }
+        >
+          <div
+            className="grid size-full min-h-0 min-w-0 gap-px bg-border"
+            style={layoutStyle(effectiveLayout)}
+            data-testid="thread-workspace"
+            data-layout={effectiveLayout}
+            data-right-panel-maximized={rightPanelMaximized ? "true" : "false"}
+          >
+            {visiblePanes.map((pane) => (
+              <ThreadPaneFrame
+                key={pane.id}
+                pane={pane}
+                focused={pane.id === effectiveFocusedPaneId}
+                maximized={pane.id === maximizedPaneId}
+                canClose={renderedPanes.length > 1}
+              />
+            ))}
+            {showGridPlaceholder ? <EmptyGridSlot /> : null}
+          </div>
+          {!maximizedPaneId && (layout === "columns" || layout === "grid") ? (
+            <ResizeRail axis="column" containerRef={paneAreaRef} />
+          ) : null}
+          {!maximizedPaneId && (layout === "rows" || layout === "grid") ? (
+            <ResizeRail axis="row" containerRef={paneAreaRef} />
+          ) : null}
+        </div>
+        <div
+          ref={setRightPanelPortalTarget}
+          className={cn(
+            "min-h-0 min-w-0 shrink-0",
+            rightPanelOpen ? "flex" : "hidden",
+            rightPanelMaximized && "flex-1",
+          )}
+          data-thread-workspace-right-panel
+        />
+        <WorkspaceDropOverlay />
       </div>
-      {!maximizedPaneId && (layout === "columns" || layout === "grid") ? (
-        <ResizeRail axis="column" containerRef={containerRef} />
-      ) : null}
-      {!maximizedPaneId && (layout === "rows" || layout === "grid") ? (
-        <ResizeRail axis="row" containerRef={containerRef} />
-      ) : null}
-      <WorkspaceDropOverlay />
-    </div>
+    </ThreadWorkspaceRightPanelPortalProvider>
   );
 }
