@@ -10,5 +10,6 @@ export function resolveCodexSidebarUsageLabel(
   if (typeof usedPercent !== "number") {
     return null;
   }
-  return `Codex Usage: ${usedPercent}%`;
+  const remainingPercent = 100 - Math.min(100, Math.max(0, Math.round(usedPercent)));
+  return `Codex Usage: ${remainingPercent}% remaining`;
 }

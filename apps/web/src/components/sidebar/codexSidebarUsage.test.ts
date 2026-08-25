@@ -4,7 +4,7 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 import { resolveCodexSidebarUsageLabel } from "./codexSidebarUsage.ts";
 
 describe("resolveCodexSidebarUsageLabel", () => {
-  it("uses Codex's reported subscription percent, not a computed token cost", () => {
+  it("shows the remaining share of Codex's reported subscription window", () => {
     expect(
       resolveCodexSidebarUsageLabel([
         {
@@ -16,7 +16,18 @@ describe("resolveCodexSidebarUsageLabel", () => {
           subscriptionUsedPercent: 73,
         },
       ]),
-    ).toBe("Codex Usage: 73%");
+    ).toBe("Codex Usage: 27% remaining");
+  });
+
+  it("clamps the reported percentage before deriving the remainder", () => {
+    expect(
+      resolveCodexSidebarUsageLabel([
+        {
+          driver: ProviderDriverKind.make("codex"),
+          subscriptionUsedPercent: 140,
+        },
+      ]),
+    ).toBe("Codex Usage: 0% remaining");
   });
 
   it("hides the row when Codex has not reported a percent", () => {

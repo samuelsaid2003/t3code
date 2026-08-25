@@ -2,17 +2,19 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
+  RefreshCwIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { useEnvironments } from "../../state/environments";
-import { primaryServerProvidersAtom } from "../../state/server";
+import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
+import { primaryServerProvidersAtom, serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { resolveCodexSidebarUsageLabel } from "./codexSidebarUsage";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -233,14 +235,62 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const providers = useAtomValue(primaryServerProvidersAtom);
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [isRefreshingCodexUsage, setIsRefreshingCodexUsage] = useState(false);
+  const refreshInFlightRef = useRef(false);
   const codexUsageLabel = resolveCodexSidebarUsageLabel(providers);
+  const codexInstanceId = providers.find(
+    (provider) =>
+      provider.driver === "codex" && typeof provider.subscriptionUsedPercent === "number",
+  )?.instanceId;
+  const refreshCodexUsage = useCallback(() => {
+    if (
+      refreshInFlightRef.current ||
+      primaryEnvironmentId === null ||
+      codexInstanceId === undefined
+    ) {
+      return;
+    }
+    refreshInFlightRef.current = true;
+    setIsRefreshingCodexUsage(true);
+    void refreshServerProviders({
+      environmentId: primaryEnvironmentId,
+      input: { instanceId: codexInstanceId },
+    }).finally(() => {
+      refreshInFlightRef.current = false;
+      setIsRefreshingCodexUsage(false);
+    });
+  }, [codexInstanceId, primaryEnvironmentId, refreshServerProviders]);
 
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       {codexUsageLabel ? (
-        <p className="px-2 pb-1 text-xs text-sidebar-muted-foreground">{codexUsageLabel}</p>
+        <div className="flex items-center justify-between gap-1 px-2 pb-1 text-xs text-sidebar-muted-foreground">
+          <span>{codexUsageLabel}</span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  aria-label="Refresh Codex usage"
+                  className="rounded-sm p-0.5 outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-50"
+                  disabled={isRefreshingCodexUsage}
+                  onClick={refreshCodexUsage}
+                  type="button"
+                >
+                  <RefreshCwIcon
+                    className={cn("size-3", isRefreshingCodexUsage && "animate-spin")}
+                  />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Refresh now · updates automatically every 5 min</TooltipPopup>
+          </Tooltip>
+        </div>
       ) : null}
       <SidebarUtilityMenu />
     </SidebarFooter>
