@@ -11,6 +11,11 @@ export type ClaudeSidebarUsage = {
   readonly metrics: ReadonlyArray<ClaudeSidebarUsageMetric>;
 };
 
+export type ProviderSidebarUsage = {
+  readonly providerName: "Codex" | "Claude";
+  readonly remainingPercent: number;
+};
+
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
@@ -21,9 +26,9 @@ function currentWindowLabel(durationMins: number | undefined): string {
   return "Current limit";
 }
 
-export function resolveProviderSidebarUsageLabel(
+export function resolveProviderSidebarUsage(
   provider: Pick<ServerProvider, "driver" | "subscriptionUsedPercent">,
-): string | null {
+): ProviderSidebarUsage | null {
   const providerName =
     provider.driver === "codex"
       ? "Codex"
@@ -39,7 +44,7 @@ export function resolveProviderSidebarUsageLabel(
     return null;
   }
   const remainingPercent = 100 - Math.min(100, Math.max(0, Math.round(usedPercent)));
-  return `${providerName} Usage: ${remainingPercent}% remaining`;
+  return { providerName, remainingPercent };
 }
 
 export function resolveClaudeSidebarUsage(

@@ -20,8 +20,9 @@ import { ClaudeAI, OpenAI } from "../Icons";
 import {
   formatProviderUsageReset,
   type ClaudeSidebarUsage,
+  type ProviderSidebarUsage,
   resolveClaudeSidebarUsage,
-  resolveProviderSidebarUsageLabel,
+  resolveProviderSidebarUsage,
 } from "./providerSidebarUsage";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -319,6 +320,75 @@ function SidebarClaudeUsageMeter({
   );
 }
 
+function SidebarProviderUsageMeter({
+  provider,
+  refreshing,
+  usage,
+  onRefresh,
+}: {
+  provider: ServerProvider;
+  refreshing: boolean;
+  usage: ProviderSidebarUsage;
+  onRefresh: () => void;
+}) {
+  const isCodex = provider.driver === "codex";
+  const Mark = isCodex ? OpenAI : ClaudeAI;
+
+  return (
+    <section
+      aria-label={`${usage.providerName} subscription usage`}
+      className="rounded-lg border border-sidebar-border/70 bg-sidebar-control-surface/55 p-2"
+    >
+      <div className="flex items-center gap-1.5">
+        <Mark className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-foreground">
+          {usage.providerName}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 text-[11px] tabular-nums",
+            isCodex ? "text-sidebar-foreground" : "text-[#c56243] dark:text-[#e28b70]",
+          )}
+        >
+          {usage.remainingPercent}% remaining
+        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                aria-label={`Refresh ${provider.displayName} usage`}
+                className="rounded-sm p-0.5 text-sidebar-muted-foreground outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-50"
+                disabled={refreshing}
+                onClick={onRefresh}
+                type="button"
+              >
+                <RefreshCwIcon className={cn("size-3", refreshing && "animate-spin")} />
+              </button>
+            }
+          />
+          <TooltipPopup side="top">Refresh now · updates automatically every 5 min</TooltipPopup>
+        </Tooltip>
+      </div>
+      <div
+        aria-label={`${usage.providerName}: ${usage.remainingPercent}% remaining`}
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={usage.remainingPercent}
+        className={cn(
+          "mt-1.5 h-1 overflow-hidden rounded-full",
+          isCodex ? "bg-sidebar-foreground/15" : "bg-[#d97757]/15",
+        )}
+        role="progressbar"
+      >
+        <div
+          className={cn("h-full rounded-full", isCodex ? "bg-sidebar-foreground" : "bg-[#d97757]")}
+          style={{ width: `${usage.remainingPercent}%` }}
+        />
+      </div>
+    </section>
+  );
+}
+
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const providers = useAtomValue(primaryServerProvidersAtom);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -335,8 +405,8 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   });
   const usageProviders = providers.flatMap((provider) => {
     if (resolveClaudeSidebarUsage(provider)) return [];
-    const label = resolveProviderSidebarUsageLabel(provider);
-    return label ? [{ provider, label }] : [];
+    const usage = resolveProviderSidebarUsage(provider);
+    return usage ? [{ provider, usage }] : [];
   });
   const refreshProviderUsage = useCallback(
     (instanceId: ServerProvider["instanceId"]) => {
@@ -369,41 +439,14 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
           usage={usage}
         />
       ))}
-      {usageProviders.map(({ provider, label }) => (
-        <div
-          className="flex items-center justify-between gap-1 px-2 pb-1 text-xs text-sidebar-muted-foreground"
+      {usageProviders.map(({ provider, usage }) => (
+        <SidebarProviderUsageMeter
           key={provider.instanceId}
-        >
-          <span className="flex min-w-0 items-center gap-1.5">
-            {provider.driver === "codex" ? (
-              <OpenAI className="size-3.5 shrink-0" />
-            ) : (
-              <ClaudeAI className="size-3.5 shrink-0" />
-            )}
-            <span className="truncate">{label}</span>
-          </span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  aria-label={`Refresh ${provider.displayName} usage`}
-                  className="rounded-sm p-0.5 outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-50"
-                  disabled={refreshingUsageInstanceId !== null}
-                  onClick={() => refreshProviderUsage(provider.instanceId)}
-                  type="button"
-                >
-                  <RefreshCwIcon
-                    className={cn(
-                      "size-3",
-                      refreshingUsageInstanceId === provider.instanceId && "animate-spin",
-                    )}
-                  />
-                </button>
-              }
-            />
-            <TooltipPopup side="top">Refresh now · updates automatically every 5 min</TooltipPopup>
-          </Tooltip>
-        </div>
+          onRefresh={() => refreshProviderUsage(provider.instanceId)}
+          provider={provider}
+          refreshing={refreshingUsageInstanceId !== null}
+          usage={usage}
+        />
       ))}
       <SidebarUtilityMenu />
     </SidebarFooter>

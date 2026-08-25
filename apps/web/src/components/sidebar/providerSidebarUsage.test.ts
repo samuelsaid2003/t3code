@@ -4,43 +4,41 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   formatProviderUsageReset,
   resolveClaudeSidebarUsage,
-  resolveProviderSidebarUsageLabel,
+  resolveProviderSidebarUsage,
 } from "./providerSidebarUsage.ts";
 
-describe("resolveProviderSidebarUsageLabel", () => {
-  it("keeps the existing Codex percentage-remaining label", () => {
+describe("resolveProviderSidebarUsage", () => {
+  it("provides Codex percentage-remaining meter data", () => {
     expect(
-      resolveProviderSidebarUsageLabel({
+      resolveProviderSidebarUsage({
         driver: ProviderDriverKind.make("codex"),
         subscriptionUsedPercent: 73,
       }),
-    ).toBe("Codex Usage: 27% remaining");
+    ).toEqual({ providerName: "Codex", remainingPercent: 27 });
   });
 
   it("provides a Claude fallback when only the primary percentage is available", () => {
     expect(
-      resolveProviderSidebarUsageLabel({
+      resolveProviderSidebarUsage({
         driver: ProviderDriverKind.make("claudeAgent"),
         subscriptionUsedPercent: 12,
       }),
-    ).toBe("Claude Usage: 88% remaining");
+    ).toEqual({ providerName: "Claude", remainingPercent: 88 });
   });
 
   it("clamps the reported percentage before deriving the remainder", () => {
     expect(
-      resolveProviderSidebarUsageLabel({
+      resolveProviderSidebarUsage({
         driver: ProviderDriverKind.make("codex"),
         subscriptionUsedPercent: 140,
       }),
-    ).toBe("Codex Usage: 0% remaining");
+    ).toEqual({ providerName: "Codex", remainingPercent: 0 });
   });
 
   it("hides missing and unsupported provider usage", () => {
+    expect(resolveProviderSidebarUsage({ driver: ProviderDriverKind.make("codex") })).toBeNull();
     expect(
-      resolveProviderSidebarUsageLabel({ driver: ProviderDriverKind.make("codex") }),
-    ).toBeNull();
-    expect(
-      resolveProviderSidebarUsageLabel({
+      resolveProviderSidebarUsage({
         driver: ProviderDriverKind.make("grok"),
         subscriptionUsedPercent: 40,
       }),
