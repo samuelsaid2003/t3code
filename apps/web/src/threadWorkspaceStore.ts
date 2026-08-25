@@ -2,6 +2,7 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { create } from "zustand";
 
 import { useComposerDraftStore, type DraftId } from "./composerDraftStore";
+import { isElectron } from "./env";
 import type { ThreadRouteTarget } from "./threadRoutes";
 
 export const THREAD_WORKSPACE_MAX_PANES = 4;
@@ -30,8 +31,9 @@ export interface ThreadWorkspaceState {
   columnRatio: number;
   rowRatio: number;
   maximizedPaneId: string | null;
-  parkedGroup: ThreadWorkspaceGroupSnapshot | null;
+  savedGroup: ThreadWorkspaceGroupSnapshot | null;
   syncRouteTarget: (target: ThreadRouteTarget) => void;
+  syncSavedGroup: (group: ThreadWorkspaceGroupSnapshot | null) => void;
   addTarget: (target: ThreadRouteTarget, region: ThreadWorkspaceDropRegion) => boolean;
   replacePaneTarget: (paneId: string, target: ThreadRouteTarget) => void;
   focusPane: (paneId: string) => void;
@@ -111,16 +113,26 @@ const initialState = {
   columnRatio: 50,
   rowRatio: 50,
   maximizedPaneId: null as string | null,
-  parkedGroup: null as ThreadWorkspaceGroupSnapshot | null,
+  savedGroup: null as ThreadWorkspaceGroupSnapshot | null,
 };
 
 const EMPTY_WORKSPACE_GROUP_PANES: readonly ThreadWorkspacePane[] = [];
 
 export function selectThreadWorkspaceGroupPanes(
-  state: Pick<ThreadWorkspaceState, "panes" | "parkedGroup">,
+  state: Pick<ThreadWorkspaceState, "savedGroup">,
 ): readonly ThreadWorkspacePane[] {
-  if (state.panes.length > 1) return state.panes;
-  return state.parkedGroup?.panes ?? EMPTY_WORKSPACE_GROUP_PANES;
+  return state.savedGroup?.panes ?? EMPTY_WORKSPACE_GROUP_PANES;
+}
+
+export function selectThreadWorkspaceGroupActive(
+  state: Pick<ThreadWorkspaceState, "panes" | "savedGroup">,
+): boolean {
+  if (state.panes.length <= 1 || state.savedGroup === null) return false;
+  const activeKeys = new Set(state.panes.map((pane) => threadWorkspaceTargetKey(pane.target)));
+  return (
+    activeKeys.size === state.savedGroup.panes.length &&
+    state.savedGroup.panes.every((pane) => activeKeys.has(threadWorkspaceTargetKey(pane.target)))
+  );
 }
 
 function snapshotWorkspaceGroup(
@@ -137,16 +149,30 @@ function snapshotWorkspaceGroup(
 function restoredWorkspaceGroup(group: ThreadWorkspaceGroupSnapshot, target: ThreadRouteTarget) {
   const existing = findPaneByTarget(group.panes, target);
   if (!existing) return null;
+  const panes = group.panes.map((pane) =>
+    pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
+  );
   return {
-    panes: group.panes.map((pane) =>
-      pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
-    ),
+    panes,
     focusedPaneId: existing.id,
     layout: group.layout,
     columnRatio: group.columnRatio,
     rowRatio: group.rowRatio,
     maximizedPaneId: null,
-    parkedGroup: null,
+    savedGroup: { ...group, panes },
+  };
+}
+
+function localizeWorkspaceGroup(
+  group: ThreadWorkspaceGroupSnapshot,
+  current: ThreadWorkspaceGroupSnapshot | null,
+): ThreadWorkspaceGroupSnapshot {
+  return {
+    ...group,
+    panes: group.panes.map((pane) => {
+      const existing = current ? findPaneByTarget(current.panes, pane.target) : null;
+      return existing ? { ...existing, target: pane.target } : createPane(pane.target);
+    }),
   };
 }
 
@@ -156,17 +182,20 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     const state = get();
     const existing = findPaneByTarget(state.panes, target);
     if (existing) {
+      const panes = state.panes.map((pane) =>
+        pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
+      );
       set({
-        panes: state.panes.map((pane) =>
-          pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
-        ),
+        panes,
         focusedPaneId: existing.id,
         maximizedPaneId: null,
+        savedGroup:
+          panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
       });
       return;
     }
-    if (state.parkedGroup) {
-      const restored = restoredWorkspaceGroup(state.parkedGroup, target);
+    if (state.savedGroup) {
+      const restored = restoredWorkspaceGroup(state.savedGroup, target);
       if (restored) {
         set(restored);
         return;
@@ -184,7 +213,7 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
         focusedPaneId: pane.id,
         layout: "single",
         maximizedPaneId: null,
-        parkedGroup: snapshotWorkspaceGroup(state),
+        savedGroup: snapshotWorkspaceGroup(state),
       });
       return;
     }
@@ -199,17 +228,20 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     const state = get();
     const existing = findPaneByTarget(state.panes, target);
     if (existing) {
+      const panes = state.panes.map((pane) =>
+        pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
+      );
       set({
-        panes: state.panes.map((pane) =>
-          pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
-        ),
+        panes,
         focusedPaneId: existing.id,
         maximizedPaneId: null,
+        savedGroup:
+          panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
       });
       return true;
     }
-    if (state.parkedGroup) {
-      const restored = restoredWorkspaceGroup(state.parkedGroup, target);
+    if (state.savedGroup) {
+      const restored = restoredWorkspaceGroup(state.savedGroup, target);
       if (restored) {
         set(restored);
         return true;
@@ -236,7 +268,12 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       focusedPaneId: pane.id,
       layout,
       maximizedPaneId: null,
-      parkedGroup: null,
+      savedGroup: snapshotWorkspaceGroup({
+        panes,
+        layout,
+        columnRatio: state.columnRatio,
+        rowRatio: state.rowRatio,
+      }),
     });
     return true;
   },
@@ -244,27 +281,32 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     const state = get();
     const existing = findPaneByTarget(state.panes, target);
     if (existing) {
+      const panes = state.panes.map((pane) =>
+        pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
+      );
       set({
-        panes: state.panes.map((pane) =>
-          pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
-        ),
+        panes,
         focusedPaneId: existing.id,
         maximizedPaneId: null,
+        savedGroup:
+          panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
       });
       return;
     }
-    if (state.parkedGroup) {
-      const restored = restoredWorkspaceGroup(state.parkedGroup, target);
+    if (state.savedGroup) {
+      const restored = restoredWorkspaceGroup(state.savedGroup, target);
       if (restored) {
         set(restored);
         return;
       }
     }
     if (!state.panes.some((pane) => pane.id === paneId)) return;
+    const panes = state.panes.map((pane) => (pane.id === paneId ? { ...pane, target } : pane));
     set({
-      panes: state.panes.map((pane) => (pane.id === paneId ? { ...pane, target } : pane)),
+      panes,
       focusedPaneId: paneId,
       maximizedPaneId: null,
+      savedGroup: panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
     });
   },
   focusPane: (paneId) => {
@@ -286,7 +328,15 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       focusedPaneId: nextFocusedPaneId,
       layout: layoutAfterPaneCount(panes.length, state.layout),
       maximizedPaneId: state.maximizedPaneId === paneId ? null : state.maximizedPaneId,
-      parkedGroup: null,
+      savedGroup:
+        panes.length > 1
+          ? snapshotWorkspaceGroup({
+              panes,
+              layout: layoutAfterPaneCount(panes.length, state.layout),
+              columnRatio: state.columnRatio,
+              rowRatio: state.rowRatio,
+            })
+          : null,
     });
   },
   swapPanes: (sourcePaneId, targetPaneId) => {
@@ -298,16 +348,28 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     const sourcePane = panes[sourceIndex]!;
     panes[sourceIndex] = panes[targetIndex]!;
     panes[targetIndex] = sourcePane;
-    set({ panes, focusedPaneId: sourcePaneId, maximizedPaneId: null });
+    set({
+      panes,
+      focusedPaneId: sourcePaneId,
+      maximizedPaneId: null,
+      savedGroup: snapshotWorkspaceGroup({
+        panes,
+        layout: get().layout,
+        columnRatio: get().columnRatio,
+        rowRatio: get().rowRatio,
+      }),
+    });
   },
   movePaneToEnd: (paneId) => {
     const state = get();
     const pane = state.panes.find((candidate) => candidate.id === paneId);
     if (!pane || state.panes.at(-1)?.id === paneId) return;
+    const panes = [...state.panes.filter((candidate) => candidate.id !== paneId), pane];
     set({
-      panes: [...state.panes.filter((candidate) => candidate.id !== paneId), pane],
+      panes,
       focusedPaneId: paneId,
       maximizedPaneId: null,
+      savedGroup: snapshotWorkspaceGroup({ ...state, panes }),
     });
   },
   toggleMaximizedPane: (paneId) => {
@@ -317,8 +379,132 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       maximizedPaneId: state.maximizedPaneId === paneId ? null : paneId,
     }));
   },
-  setColumnRatio: (ratio) => set({ columnRatio: clampThreadWorkspaceRatio(ratio) }),
-  setRowRatio: (ratio) => set({ rowRatio: clampThreadWorkspaceRatio(ratio) }),
-  resetLayoutRatios: () => set({ columnRatio: 50, rowRatio: 50 }),
+  setColumnRatio: (ratio) =>
+    set((state) => {
+      const columnRatio = clampThreadWorkspaceRatio(ratio);
+      return {
+        columnRatio,
+        savedGroup:
+          state.panes.length > 1
+            ? snapshotWorkspaceGroup({ ...state, columnRatio })
+            : state.savedGroup,
+      };
+    }),
+  setRowRatio: (ratio) =>
+    set((state) => {
+      const rowRatio = clampThreadWorkspaceRatio(ratio);
+      return {
+        rowRatio,
+        savedGroup:
+          state.panes.length > 1
+            ? snapshotWorkspaceGroup({ ...state, rowRatio })
+            : state.savedGroup,
+      };
+    }),
+  resetLayoutRatios: () =>
+    set((state) => ({
+      columnRatio: 50,
+      rowRatio: 50,
+      savedGroup:
+        state.panes.length > 1
+          ? snapshotWorkspaceGroup({ ...state, columnRatio: 50, rowRatio: 50 })
+          : state.savedGroup,
+    })),
+  syncSavedGroup: (group) =>
+    set((state) => ({
+      savedGroup: group === null ? null : localizeWorkspaceGroup(group, state.savedGroup),
+    })),
   reset: () => set({ ...initialState }),
 }));
+
+const THREAD_WORKSPACE_WINDOW_CHANNEL = "t3-thread-workspace-group-v1";
+
+type ThreadWorkspaceWindowMessage =
+  | { readonly sourceId: string; readonly type: "request-group" }
+  | {
+      readonly sourceId: string;
+      readonly type: "sync-group";
+      readonly group: ThreadWorkspaceGroupSnapshot | null;
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isThreadRouteTarget(value: unknown): value is ThreadRouteTarget {
+  if (!isRecord(value)) return false;
+  if (value.kind === "draft") return typeof value.draftId === "string";
+  if (value.kind !== "server" || !isRecord(value.threadRef)) return false;
+  return (
+    typeof value.threadRef.environmentId === "string" &&
+    typeof value.threadRef.threadId === "string"
+  );
+}
+
+function isWorkspaceGroupSnapshot(value: unknown): value is ThreadWorkspaceGroupSnapshot {
+  if (!isRecord(value) || !Array.isArray(value.panes)) return false;
+  if (value.panes.length < 2 || value.panes.length > THREAD_WORKSPACE_MAX_PANES) return false;
+  if (value.layout !== "columns" && value.layout !== "rows" && value.layout !== "grid") {
+    return false;
+  }
+  if (typeof value.columnRatio !== "number" || !Number.isFinite(value.columnRatio)) return false;
+  if (typeof value.rowRatio !== "number" || !Number.isFinite(value.rowRatio)) return false;
+  return value.panes.every(
+    (pane) => isRecord(pane) && typeof pane.id === "string" && isThreadRouteTarget(pane.target),
+  );
+}
+
+function workspaceGroupSignature(group: ThreadWorkspaceGroupSnapshot | null): string {
+  if (group === null) return "none";
+  return JSON.stringify({
+    targets: group.panes.map((pane) => ({
+      kind: pane.target.kind,
+      key: threadWorkspaceTargetKey(pane.target),
+    })),
+    layout: group.layout,
+    columnRatio: group.columnRatio,
+    rowRatio: group.rowRatio,
+  });
+}
+
+function startThreadWorkspaceWindowSync() {
+  if (!isElectron || typeof BroadcastChannel === "undefined") return;
+
+  const sourceId = `thread-workspace-window-${Math.random().toString(36).slice(2)}`;
+  const channel = new BroadcastChannel(THREAD_WORKSPACE_WINDOW_CHANNEL);
+  const sendWindowMessage = channel.postMessage.bind(channel);
+  let latestSignature = workspaceGroupSignature(useThreadWorkspaceStore.getState().savedGroup);
+
+  const postGroup = () => {
+    sendWindowMessage({
+      sourceId,
+      type: "sync-group",
+      group: useThreadWorkspaceStore.getState().savedGroup,
+    } satisfies ThreadWorkspaceWindowMessage);
+  };
+
+  channel.addEventListener("message", (event: MessageEvent<unknown>) => {
+    if (!isRecord(event.data) || event.data.sourceId === sourceId) return;
+    if (event.data.type === "request-group") {
+      postGroup();
+      return;
+    }
+    if (event.data.type !== "sync-group") return;
+    const group = event.data.group;
+    if (group !== null && !isWorkspaceGroupSnapshot(group)) return;
+    latestSignature = workspaceGroupSignature(group);
+    useThreadWorkspaceStore.getState().syncSavedGroup(group);
+  });
+
+  useThreadWorkspaceStore.subscribe((state, previous) => {
+    if (state.savedGroup === previous.savedGroup) return;
+    const signature = workspaceGroupSignature(state.savedGroup);
+    if (signature === latestSignature) return;
+    latestSignature = signature;
+    postGroup();
+  });
+
+  sendWindowMessage({ sourceId, type: "request-group" } satisfies ThreadWorkspaceWindowMessage);
+}
+
+startThreadWorkspaceWindowSync();

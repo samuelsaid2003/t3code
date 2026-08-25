@@ -182,7 +182,11 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
-import { selectThreadWorkspaceGroupPanes, useThreadWorkspaceStore } from "../threadWorkspaceStore";
+import {
+  selectThreadWorkspaceGroupActive,
+  selectThreadWorkspaceGroupPanes,
+  useThreadWorkspaceStore,
+} from "../threadWorkspaceStore";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -1793,7 +1797,7 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const workspaceGroupPanes = useThreadWorkspaceStore(selectThreadWorkspaceGroupPanes);
-  const workspaceGroupActive = useThreadWorkspaceStore((store) => store.panes.length > 1);
+  const workspaceGroupActive = useThreadWorkspaceStore(selectThreadWorkspaceGroupActive);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);

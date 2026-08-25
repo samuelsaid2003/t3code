@@ -11,6 +11,7 @@ import {
 import type { DragEndEvent } from "@dnd-kit/core";
 import {
   clampThreadWorkspaceRatio,
+  selectThreadWorkspaceGroupActive,
   selectThreadWorkspaceGroupPanes,
   shouldNavigateThreadWorkspaceRoute,
   threadWorkspaceTargetKey,
@@ -84,7 +85,8 @@ describe("threadWorkspaceStore", () => {
     expect(state.layout).toBe("rows");
     expect(state.columnRatio).toBe(63);
     expect(state.rowRatio).toBe(41);
-    expect(state.parkedGroup).toBeNull();
+    expect(state.savedGroup?.panes).toHaveLength(2);
+    expect(selectThreadWorkspaceGroupActive(state)).toBe(true);
     expect(
       threadWorkspaceTargetKey(state.panes.find((pane) => pane.id === state.focusedPaneId)!.target),
     ).toBe(threadWorkspaceTargetKey(first));
@@ -96,12 +98,44 @@ describe("threadWorkspaceStore", () => {
     useThreadWorkspaceStore.getState().syncRouteTarget(first);
     useThreadWorkspaceStore.getState().addTarget(second, "right");
     useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
-    const parkedPanes = useThreadWorkspaceStore.getState().parkedGroup!.panes;
+    const savedPanes = useThreadWorkspaceStore.getState().savedGroup!.panes;
 
     useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-4"));
     const state = useThreadWorkspaceStore.getState();
     expect(state.panes).toHaveLength(1);
-    expect(state.parkedGroup?.panes).toBe(parkedPanes);
+    expect(state.savedGroup?.panes).toBe(savedPanes);
+  });
+
+  it("shows and restores a split group received from another desktop window", () => {
+    const first = serverTarget("thread-1");
+    const second = serverTarget("thread-2");
+    const outside = serverTarget("thread-3");
+    useThreadWorkspaceStore.getState().syncRouteTarget(outside);
+
+    useThreadWorkspaceStore.getState().syncSavedGroup({
+      panes: [
+        { id: "remote-pane-1", target: first },
+        { id: "remote-pane-2", target: second },
+      ],
+      layout: "columns",
+      columnRatio: 58,
+      rowRatio: 50,
+    });
+
+    let state = useThreadWorkspaceStore.getState();
+    expect(state.panes).toHaveLength(1);
+    expect(selectThreadWorkspaceGroupActive(state)).toBe(false);
+    expect(selectThreadWorkspaceGroupPanes(state).map((pane) => pane.target)).toEqual([
+      first,
+      second,
+    ]);
+    expect(state.savedGroup?.panes.every((pane) => !pane.id.startsWith("remote-pane"))).toBe(true);
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(second);
+    state = useThreadWorkspaceStore.getState();
+    expect(state.panes).toHaveLength(2);
+    expect(state.columnRatio).toBe(58);
+    expect(selectThreadWorkspaceGroupActive(state)).toBe(true);
   });
 
   it("replaces an old parked group when a new split is created", () => {
@@ -115,7 +149,10 @@ describe("threadWorkspaceStore", () => {
       threadWorkspaceTargetKey(serverTarget("thread-3")),
       threadWorkspaceTargetKey(serverTarget("thread-4")),
     ]);
-    expect(state.parkedGroup).toBeNull();
+    expect(state.savedGroup?.panes.map((pane) => threadWorkspaceTargetKey(pane.target))).toEqual([
+      threadWorkspaceTargetKey(serverTarget("thread-3")),
+      threadWorkspaceTargetKey(serverTarget("thread-4")),
+    ]);
   });
 
   it("creates directional two-pane layouts and promotes three panes to a grid", () => {
@@ -224,7 +261,7 @@ describe("threadWorkspaceStore", () => {
     expect(state.panes).toHaveLength(1);
     expect(state.focusedPaneId).toBe(state.panes[0]!.id);
     expect(state.layout).toBe("single");
-    expect(state.parkedGroup).toBeNull();
+    expect(state.savedGroup).toBeNull();
 
     useThreadWorkspaceStore.getState().closePane(state.panes[0]!.id);
     expect(useThreadWorkspaceStore.getState().panes).toHaveLength(1);

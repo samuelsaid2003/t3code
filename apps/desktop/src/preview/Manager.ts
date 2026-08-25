@@ -373,6 +373,7 @@ type PreviewInputSignal =
 interface ManagedListeners {
   readonly attachmentId: symbol;
   readonly cancelFaviconCapture: () => void;
+  readonly hostWebContents: Electron.WebContents | null;
   readonly scope: Scope.Closeable;
   readonly webContents: Electron.WebContents;
 }
@@ -1719,7 +1720,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       });
       yield* Ref.update(attachedRef, (attached) =>
         replaceMap(attached, (copy) => {
-          copy.set(wc.id, { attachmentId, cancelFaviconCapture, scope, webContents: wc });
+          copy.set(wc.id, {
+            attachmentId,
+            cancelFaviconCapture,
+            hostWebContents: wc.hostWebContents,
+            scope,
+            webContents: wc,
+          });
         }),
       );
     });
@@ -1741,14 +1748,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   };
 
   const closeTabsHostedByWindow = Effect.fn("PreviewManager.closeTabsHostedByWindow")(function* (
-    window: BrowserWindow,
+    hostWebContents: Electron.WebContents,
   ) {
     const tabs = yield* SynchronizedRef.get(tabsRef);
     const attached = yield* Ref.get(attachedRef);
     for (const [tabId, tab] of tabs) {
       const attachment = tab.webContentsId === null ? undefined : attached.get(tab.webContentsId);
-      const host = attachment?.webContents.hostWebContents;
-      if (host === window.webContents) {
+      if (attachment?.hostWebContents === hostWebContents) {
         yield* closeTab(tabId).pipe(Effect.ignore);
       }
     }
@@ -1772,6 +1778,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         yield* Ref.set(mainWindowRef, Option.some(window));
         currentMainWindow = window;
         frameCaptureWindowOpen = true;
+        const hostWebContents = window.webContents;
         window.once("closed", () => {
           appWindows = appWindows.filter((candidate) => candidate !== window);
           const remaining = liveAppWindows();
@@ -1789,7 +1796,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             );
             return;
           }
-          mainWindowCleanupFiber = runFork(closeTabsHostedByWindow(window).pipe(Effect.ignore));
+          mainWindowCleanupFiber = runFork(
+            closeTabsHostedByWindow(hostWebContents).pipe(Effect.ignore),
+          );
         });
         return [undefined, sessions] as const;
       }),

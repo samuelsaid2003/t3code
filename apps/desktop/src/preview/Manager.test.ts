@@ -1986,6 +1986,54 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("opens another app window after a previous window is destroyed", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let closeFirstWindow: (() => void) | undefined;
+        let firstWindowDestroyed = false;
+        const capturePage = vi.fn(async () => ({
+          toJPEG: () => Buffer.from("window-reopen"),
+          getSize: () => ({ width: 1280, height: 720 }),
+        }));
+        const firstHostWebContents = { id: 1, setBackgroundThrottling: vi.fn() } as never;
+        const previewWebContents = makeTestPreviewWebContents(capturePage);
+        Object.defineProperty(previewWebContents, "hostWebContents", {
+          value: firstHostWebContents,
+        });
+        fromId.mockReturnValue(previewWebContents);
+
+        const firstWindow = {
+          isDestroyed: () => firstWindowDestroyed,
+          once: vi.fn((event: string, listener: () => void) => {
+            if (event === "closed") closeFirstWindow = listener;
+          }),
+          get webContents() {
+            if (firstWindowDestroyed) throw new TypeError("Object has been destroyed");
+            return firstHostWebContents;
+          },
+        } as never;
+
+        yield* manager.setMainWindow(firstWindow);
+        yield* manager.createTab("tab_closed_app_window");
+        yield* manager.registerWebview("tab_closed_app_window", 42);
+
+        firstWindowDestroyed = true;
+        closeFirstWindow?.();
+        yield* Effect.yieldNow;
+
+        const replacement = yield* Effect.exit(
+          manager.setMainWindow({
+            isDestroyed: () => false,
+            once: vi.fn(),
+            webContents: { id: 2, setBackgroundThrottling: vi.fn() },
+          } as never),
+        );
+
+        expect(Exit.isSuccess(replacement)).toBe(true);
+      }),
+    ),
+  );
+
   effectIt.effect("releases frame capture when the main window closes", () =>
     withManager((manager) =>
       Effect.gen(function* () {

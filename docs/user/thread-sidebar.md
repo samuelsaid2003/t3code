@@ -24,7 +24,9 @@ to four visible threads.
 Threads in the split are grouped together in the sidebar inside a dotted green border. Clicking a
 thread outside that group opens it by itself and keeps the split ready in the sidebar. Click any
 grouped thread to return to the full split with that thread focused. Creating another split replaces
-the previous saved group; one split group is kept at a time.
+the previous saved group; one split group is kept at a time. The saved group appears in the sidebar
+of every open desktop window, while each window keeps its own currently visible panes and focused
+thread.
 
 Drag pane headers onto one another to swap them, or drag a header into the grid's empty slot to move
 it. Pane dividers can be resized and double-clicked to return to an even split. Double-click a pane
