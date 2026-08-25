@@ -4,7 +4,11 @@ export function resolveProviderSidebarUsageLabel(
   provider: Pick<ServerProvider, "driver" | "subscriptionUsedPercent">,
 ): string | null {
   const providerName =
-    provider.driver === "codex" ? "Codex" : provider.driver === "claude" ? "Claude" : undefined;
+    provider.driver === "codex"
+      ? "Codex"
+      : provider.driver === "claudeAgent"
+        ? "Claude"
+        : undefined;
   if (!providerName) {
     return null;
   }

@@ -16,7 +16,7 @@ describe("resolveProviderSidebarUsageLabel", () => {
   it("shows the remaining share of Claude's five-hour subscription window", () => {
     expect(
       resolveProviderSidebarUsageLabel({
-        driver: ProviderDriverKind.make("claude"),
+        driver: ProviderDriverKind.make("claudeAgent"),
         subscriptionUsedPercent: 12,
       }),
     ).toBe("Claude Usage: 88% remaining");
@@ -41,6 +41,15 @@ describe("resolveProviderSidebarUsageLabel", () => {
     expect(
       resolveProviderSidebarUsageLabel({
         driver: ProviderDriverKind.make("grok"),
+        subscriptionUsedPercent: 40,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not mistake an unknown Claude-like driver for Claude Code", () => {
+    expect(
+      resolveProviderSidebarUsageLabel({
+        driver: ProviderDriverKind.make("claude"),
         subscriptionUsedPercent: 40,
       }),
     ).toBeNull();
