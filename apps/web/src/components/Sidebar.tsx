@@ -182,6 +182,7 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+import { selectThreadWorkspaceGroupPanes, useThreadWorkspaceStore } from "../threadWorkspaceStore";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -500,7 +501,9 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   const preview =
     promptPreview.length > 0
       ? promptPreview
-      : `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`;
+      : attachmentCount > 0
+        ? `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`
+        : "New thread";
   const handleActivate = useCallback(() => onNavigate(draftId), [draftId, onNavigate]);
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -603,6 +606,7 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   projectFaviconPathByKey: ReadonlyMap<string, string | null | undefined>;
   scopedProjectKeys: ReadonlySet<string> | null;
   routeDraftId: string | null;
+  excludedDraftIds: ReadonlySet<string>;
   onNavigateToDraft: (draftId: DraftId) => void;
 }) {
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
@@ -638,7 +642,7 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
     // new-thread surfaces mint fresh drafts and leave invested ones behind
     // unmapped, so the mapping only knows about the latest per project.
     for (const [draftKey, session] of Object.entries(draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (session.promotedTo != null || props.excludedDraftIds.has(draftKey)) {
         continue;
       }
       if (
@@ -668,6 +672,7 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
     draftThreadsByThreadKey,
     draftsByThreadKey,
     frozenActive,
+    props.excludedDraftIds,
     props.routeDraftId,
     props.scopedProjectKeys,
   ]);
@@ -709,6 +714,41 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
         className="mx-2.5 my-1.5 h-px list-none bg-sidebar-border/60"
       />
     </>
+  );
+});
+
+const SidebarWorkspaceDraftRow = memo(function SidebarWorkspaceDraftRow(props: {
+  draftId: DraftId;
+  projectDisplayNameByKey: ReadonlyMap<string, string>;
+  projectCwdByKey: ReadonlyMap<string, string>;
+  projectFaviconPathByKey: ReadonlyMap<string, string | null | undefined>;
+  isActive: boolean;
+  onNavigateToDraft: (draftId: DraftId) => void;
+}) {
+  const session = useComposerDraftStore((store) => store.getDraftSession(props.draftId));
+  const composer = useComposerDraftStore((store) => store.getComposerDraft(props.draftId));
+  const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
+  const handleDiscard = useCallback(
+    (draftId: DraftId) => {
+      releaseComposerDraftUploads(draftId);
+      clearDraftThread(draftId);
+    },
+    [clearDraftThread],
+  );
+  if (!session || !composer || session.promotedTo != null) return null;
+  const projectKey = `${session.environmentId}:${session.projectId}`;
+  return (
+    <SidebarDraftRow
+      draftId={props.draftId}
+      session={session}
+      composer={composer}
+      projectTitle={props.projectDisplayNameByKey.get(projectKey) ?? null}
+      projectCwd={props.projectCwdByKey.get(projectKey) ?? null}
+      projectFaviconPath={props.projectFaviconPathByKey.get(projectKey) ?? null}
+      isActive={props.isActive}
+      onNavigate={props.onNavigateToDraft}
+      onDiscard={handleDiscard}
+    />
   );
 });
 
@@ -1752,6 +1792,8 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const workspaceGroupPanes = useThreadWorkspaceStore(selectThreadWorkspaceGroupPanes);
+  const workspaceGroupActive = useThreadWorkspaceStore((store) => store.panes.length > 1);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -1870,6 +1912,25 @@ export default function Sidebar() {
   // the command was in flight, completing it must not yank them away.
   const routeThreadKeyRef = useRef(routeThreadKey);
   routeThreadKeyRef.current = routeThreadKey;
+
+  const workspaceGroupThreadKeys = useMemo(
+    () =>
+      new Set(
+        workspaceGroupPanes.flatMap((pane) =>
+          pane.target.kind === "server" ? [scopedThreadKey(pane.target.threadRef)] : [],
+        ),
+      ),
+    [workspaceGroupPanes],
+  );
+  const workspaceGroupDraftIds = useMemo(
+    () =>
+      new Set(
+        workspaceGroupPanes.flatMap((pane) =>
+          pane.target.kind === "draft" ? [String(pane.target.draftId)] : [],
+        ),
+      ),
+    [workspaceGroupPanes],
+  );
 
   const environmentLabelById = useMemo(
     () =>
@@ -2140,6 +2201,84 @@ export default function Sidebar() {
     threads,
   ]);
 
+  const sidebarPinnedThreads = useMemo(
+    () =>
+      pinnedThreads.filter(
+        (thread) =>
+          !workspaceGroupThreadKeys.has(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+      ),
+    [pinnedThreads, workspaceGroupThreadKeys],
+  );
+  const sidebarActiveThreads = useMemo(
+    () =>
+      activeThreads.filter(
+        (thread) =>
+          !workspaceGroupThreadKeys.has(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+      ),
+    [activeThreads, workspaceGroupThreadKeys],
+  );
+  const sidebarSnoozedThreads = useMemo(
+    () =>
+      snoozedThreads.filter(
+        (thread) =>
+          !workspaceGroupThreadKeys.has(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+      ),
+    [snoozedThreads, workspaceGroupThreadKeys],
+  );
+  const sidebarSettledThreads = useMemo(
+    () =>
+      settledThreads.filter(
+        (thread) =>
+          !workspaceGroupThreadKeys.has(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+      ),
+    [settledThreads, workspaceGroupThreadKeys],
+  );
+  const workspaceThreadByKey = useMemo(
+    () =>
+      new Map(
+        threads
+          .filter((thread) => thread.archivedAt === null)
+          .map(
+            (thread) =>
+              [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
+          ),
+      ),
+    [threads],
+  );
+  const workspaceGroupThreads = useMemo(
+    () =>
+      workspaceGroupPanes.flatMap((pane) => {
+        if (pane.target.kind !== "server") return [];
+        const thread = workspaceThreadByKey.get(scopedThreadKey(pane.target.threadRef));
+        return thread ? [thread] : [];
+      }),
+    [workspaceGroupPanes, workspaceThreadByKey],
+  );
+  const workspaceGroupSectionByThreadKey = useMemo(() => {
+    const sections = new Map<string, "pinned" | "active" | "snoozed" | "settled">();
+    for (const thread of pinnedThreads) {
+      sections.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), "pinned");
+    }
+    for (const thread of activeThreads) {
+      sections.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), "active");
+    }
+    for (const thread of snoozedThreads) {
+      sections.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), "snoozed");
+    }
+    for (const thread of settledThreads) {
+      sections.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), "settled");
+    }
+    return sections;
+  }, [activeThreads, pinnedThreads, settledThreads, snoozedThreads]);
+
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
@@ -2197,13 +2336,13 @@ export default function Sidebar() {
     setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
   }
   const visibleSettledThreads = useMemo(() => {
-    if (settledThreads.length <= settledVisibleCount) return settledThreads;
-    const visible = settledThreads.slice(0, settledVisibleCount);
+    if (sidebarSettledThreads.length <= settledVisibleCount) return sidebarSettledThreads;
+    const visible = sidebarSettledThreads.slice(0, settledVisibleCount);
     // The open thread must never hide under "Show more": navigating into a
     // deep settled thread (search, deep link) pulls its row into the visible
     // tail so the highlight and the un-settle affordance stay reachable.
     if (routeThreadKey !== null) {
-      const routeThread = settledThreads
+      const routeThread = sidebarSettledThreads
         .slice(settledVisibleCount)
         .find(
           (thread) =>
@@ -2212,8 +2351,8 @@ export default function Sidebar() {
       if (routeThread !== undefined) visible.push(routeThread);
     }
     return visible;
-  }, [routeThreadKey, settledThreads, settledVisibleCount]);
-  const hiddenSettledCount = settledThreads.length - visibleSettledThreads.length;
+  }, [routeThreadKey, settledVisibleCount, sidebarSettledThreads]);
+  const hiddenSettledCount = sidebarSettledThreads.length - visibleSettledThreads.length;
   const showMoreSettled = useCallback(
     () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
     [],
@@ -2250,22 +2389,34 @@ export default function Sidebar() {
     [setSnoozedShelfExpanded],
   );
   const visibleSnoozedThreads = useMemo(() => {
-    if (snoozedShelfExpanded) return snoozedThreads;
+    if (snoozedShelfExpanded) return sidebarSnoozedThreads;
     // The open thread must never vanish behind the collapsed shelf: a
     // snoozed thread reached by route (deep link, open before snoozing
     // elsewhere) keeps its row — with highlight and wake affordance — same
     // exception the settled tail's "Show more" makes.
     if (routeThreadKey === null) return [];
-    const routeThread = snoozedThreads.find(
+    const routeThread = sidebarSnoozedThreads.find(
       (thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
     );
     return routeThread === undefined ? [] : [routeThread];
-  }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
+  }, [routeThreadKey, sidebarSnoozedThreads, snoozedShelfExpanded]);
 
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...workspaceGroupThreads,
+      ...sidebarPinnedThreads,
+      ...sidebarActiveThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+    ],
+    [
+      renderedSettledThreads,
+      sidebarActiveThreads,
+      sidebarPinnedThreads,
+      visibleSnoozedThreads,
+      workspaceGroupThreads,
+    ],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -2613,6 +2764,16 @@ export default function Sidebar() {
       getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     });
   }, [optimisticPinnedOrder, pinnedThreads]);
+  const sidebarOrderedPinnedThreads = useMemo(
+    () =>
+      orderedPinnedThreads.filter(
+        (thread) =>
+          !workspaceGroupThreadKeys.has(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+      ),
+    [orderedPinnedThreads, workspaceGroupThreadKeys],
+  );
   useEffect(() => {
     if (optimisticPinnedOrder === null) return;
     const canonical = pinnedThreads.filter((thread) =>
@@ -3813,12 +3974,65 @@ export default function Sidebar() {
                       projectFaviconPathByKey={projectFaviconPathByKey}
                       scopedProjectKeys={scopedProjectKeys}
                       routeDraftId={routeDraftIdForRows}
+                      excludedDraftIds={workspaceGroupDraftIds}
                       onNavigateToDraft={navigateToDraft}
                     />,
-                    pinnedThreads.length > 0 ? (
+                  ];
+                  if (workspaceGroupPanes.length > 1) {
+                    items.push(
+                      <li key="thread-workspace-group" className="list-none py-1">
+                        <div
+                          data-testid="sidebar-thread-workspace-group"
+                          data-state={workspaceGroupActive ? "active" : "parked"}
+                          className={cn(
+                            "rounded-lg border border-dotted p-0.5",
+                            workspaceGroupActive
+                              ? "border-emerald-500/60 bg-emerald-500/[0.035]"
+                              : "border-emerald-500/35 bg-emerald-500/[0.015]",
+                          )}
+                        >
+                          <ul
+                            role="list"
+                            aria-label={
+                              workspaceGroupActive
+                                ? "Current split view threads"
+                                : "Saved split view threads"
+                            }
+                            className="flex flex-col gap-px"
+                          >
+                            {workspaceGroupPanes.map((pane) => {
+                              if (pane.target.kind === "draft") {
+                                return (
+                                  <SidebarWorkspaceDraftRow
+                                    key={pane.id}
+                                    draftId={pane.target.draftId}
+                                    projectDisplayNameByKey={projectDisplayNameByKey}
+                                    projectCwdByKey={projectCwdByKey}
+                                    projectFaviconPathByKey={projectFaviconPathByKey}
+                                    isActive={routeDraftIdForRows === pane.target.draftId}
+                                    onNavigateToDraft={navigateToDraft}
+                                  />
+                                );
+                              }
+                              const threadKey = scopedThreadKey(pane.target.threadRef);
+                              const thread = workspaceThreadByKey.get(threadKey);
+                              return thread
+                                ? renderThreadRow(
+                                    thread,
+                                    workspaceGroupSectionByThreadKey.get(threadKey) ?? "active",
+                                  )
+                                : null;
+                            })}
+                          </ul>
+                        </div>
+                      </li>,
+                    );
+                  }
+                  if (sidebarPinnedThreads.length > 0) {
+                    items.push(
                       <li key="pinned-dnd" className="list-none">
                         <SortableContext
-                          items={orderedPinnedThreads
+                          items={sidebarOrderedPinnedThreads
                             .map((thread) =>
                               scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
                             )
@@ -3830,7 +4044,7 @@ export default function Sidebar() {
                             aria-label="Pinned threads"
                             className="flex flex-col gap-px"
                           >
-                            {orderedPinnedThreads.map((thread) => {
+                            {sidebarOrderedPinnedThreads.map((thread) => {
                               const threadRef = scopeThreadRef(thread.environmentId, thread.id);
                               const threadKey = scopedThreadKey(threadRef);
                               if (!reorderablePinnedKeys.has(threadKey)) {
@@ -3849,10 +4063,8 @@ export default function Sidebar() {
                             })}
                           </ul>
                         </SortableContext>
-                      </li>
-                    ) : null,
-                  ];
-                  if (pinnedThreads.length > 0) {
+                      </li>,
+                    );
                     items.push(
                       <li
                         key="pinned-divider"
@@ -3862,7 +4074,7 @@ export default function Sidebar() {
                       />,
                     );
                   }
-                  for (const thread of activeThreads) {
+                  for (const thread of sidebarActiveThreads) {
                     items.push(renderThreadRow(thread, "active"));
                   }
                   // Snoozed shelf: between the inbox and Settled — out of the
@@ -3870,7 +4082,7 @@ export default function Sidebar() {
                   // is snoozed (the count is the whole footprint when
                   // collapsed); rows only when expanded. Vanishes entirely at
                   // count 0.
-                  if (snoozedThreads.length > 0) {
+                  if (sidebarSnoozedThreads.length > 0) {
                     items.push(
                       <li
                         key="snoozed-shelf-header"
@@ -3887,7 +4099,7 @@ export default function Sidebar() {
                           <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                             {snoozedShelfExpanded
                               ? "Snoozed"
-                              : `Snoozed (${snoozedThreads.length})`}
+                              : `Snoozed (${sidebarSnoozedThreads.length})`}
                           </span>
                           <span className="h-px flex-1 bg-blue-500/20 dark:bg-blue-400/15" />
                           <ChevronDownIcon
@@ -3904,7 +4116,7 @@ export default function Sidebar() {
                       items.push(renderThreadRow(thread, "snoozed"));
                     }
                   }
-                  if (settledThreads.length > 0) {
+                  if (sidebarSettledThreads.length > 0) {
                     items.push(
                       <li
                         key="settled-shelf-header"
@@ -3921,7 +4133,7 @@ export default function Sidebar() {
                           <span className="text-xs font-medium text-muted-foreground/50">
                             {settledShelfExpanded
                               ? "Settled"
-                              : `Settled (${settledThreads.length})`}
+                              : `Settled (${sidebarSettledThreads.length})`}
                           </span>
                           <span className="h-px flex-1 bg-sidebar-border/60" />
                           <ChevronDownIcon

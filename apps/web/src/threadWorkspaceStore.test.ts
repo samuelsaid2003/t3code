@@ -11,6 +11,7 @@ import {
 import type { DragEndEvent } from "@dnd-kit/core";
 import {
   clampThreadWorkspaceRatio,
+  selectThreadWorkspaceGroupPanes,
   shouldNavigateThreadWorkspaceRoute,
   threadWorkspaceTargetKey,
   useThreadWorkspaceStore,
@@ -55,6 +56,66 @@ describe("threadWorkspaceStore", () => {
     expect(state.panes).toHaveLength(1);
     expect(threadWorkspaceTargetKey(state.panes[0]!.target)).toBe(threadWorkspaceTargetKey(second));
     expect(state.layout).toBe("single");
+  });
+
+  it("parks an active split for an outside thread and restores it from either member", () => {
+    const first = serverTarget("thread-1");
+    const second = serverTarget("thread-2");
+    const outside = serverTarget("thread-3");
+    useThreadWorkspaceStore.getState().syncRouteTarget(first);
+    useThreadWorkspaceStore.getState().addTarget(second, "bottom");
+    useThreadWorkspaceStore.getState().setColumnRatio(63);
+    useThreadWorkspaceStore.getState().setRowRatio(41);
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(outside);
+    let state = useThreadWorkspaceStore.getState();
+    expect(state.panes).toHaveLength(1);
+    expect(threadWorkspaceTargetKey(state.panes[0]!.target)).toBe(
+      threadWorkspaceTargetKey(outside),
+    );
+    expect(selectThreadWorkspaceGroupPanes(state).map((pane) => pane.target)).toEqual([
+      first,
+      second,
+    ]);
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(first);
+    state = useThreadWorkspaceStore.getState();
+    expect(state.panes).toHaveLength(2);
+    expect(state.layout).toBe("rows");
+    expect(state.columnRatio).toBe(63);
+    expect(state.rowRatio).toBe(41);
+    expect(state.parkedGroup).toBeNull();
+    expect(
+      threadWorkspaceTargetKey(state.panes.find((pane) => pane.id === state.focusedPaneId)!.target),
+    ).toBe(threadWorkspaceTargetKey(first));
+  });
+
+  it("keeps one parked group while navigating between standalone threads", () => {
+    const first = serverTarget("thread-1");
+    const second = serverTarget("thread-2");
+    useThreadWorkspaceStore.getState().syncRouteTarget(first);
+    useThreadWorkspaceStore.getState().addTarget(second, "right");
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
+    const parkedPanes = useThreadWorkspaceStore.getState().parkedGroup!.panes;
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-4"));
+    const state = useThreadWorkspaceStore.getState();
+    expect(state.panes).toHaveLength(1);
+    expect(state.parkedGroup?.panes).toBe(parkedPanes);
+  });
+
+  it("replaces an old parked group when a new split is created", () => {
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-1"));
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-2"), "right");
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
+
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-4"), "right");
+    const state = useThreadWorkspaceStore.getState();
+    expect(state.panes.map((pane) => threadWorkspaceTargetKey(pane.target))).toEqual([
+      threadWorkspaceTargetKey(serverTarget("thread-3")),
+      threadWorkspaceTargetKey(serverTarget("thread-4")),
+    ]);
+    expect(state.parkedGroup).toBeNull();
   });
 
   it("creates directional two-pane layouts and promotes three panes to a grid", () => {
@@ -163,6 +224,7 @@ describe("threadWorkspaceStore", () => {
     expect(state.panes).toHaveLength(1);
     expect(state.focusedPaneId).toBe(state.panes[0]!.id);
     expect(state.layout).toBe("single");
+    expect(state.parkedGroup).toBeNull();
 
     useThreadWorkspaceStore.getState().closePane(state.panes[0]!.id);
     expect(useThreadWorkspaceStore.getState().panes).toHaveLength(1);

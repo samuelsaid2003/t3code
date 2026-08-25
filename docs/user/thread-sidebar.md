@@ -21,14 +21,19 @@ In the desktop app, drag a thread from the sidebar toward an edge of the convers
 it beside the current thread. T3 Code supports two columns, two rows, or a four-slot grid with up
 to four visible threads.
 
-Clicking a thread in the sidebar still opens it in the focused pane. Drag pane headers onto one
-another to swap them, or drag a header into the grid's empty slot to move it. Pane dividers can be
-resized and double-clicked to return to an even split. Double-click a pane header to maximize or
-restore it. An unfocused pane keeps its conversation header in place at reduced opacity, so
-switching panes does not move the conversation content.
+Threads in the split are grouped together in the sidebar inside a dotted green border. Clicking a
+thread outside that group opens it by itself and keeps the split ready in the sidebar. Click any
+grouped thread to return to the full split with that thread focused. Creating another split replaces
+the previous saved group; one split group is kept at a time.
 
-Closing a pane closes only that view. It does not stop, settle, archive, or delete the thread. Pane
-arrangement is session-only and returns to one thread when the desktop app reloads or restarts.
+Drag pane headers onto one another to swap them, or drag a header into the grid's empty slot to move
+it. Pane dividers can be resized and double-clicked to return to an even split. Double-click a pane
+header to maximize or restore it. An unfocused pane keeps its conversation header in place at
+reduced opacity, so switching panes does not move the conversation content.
+
+Closing a pane closes only that view. It does not stop, settle, archive, or delete the thread. When
+only one pane remains, the group dissolves. Pane arrangement and the saved group are session-only
+and return to one thread when the desktop app reloads or restarts.
 
 ## Environment artwork
 

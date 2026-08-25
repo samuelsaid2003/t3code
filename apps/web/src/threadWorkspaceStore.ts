@@ -16,13 +16,21 @@ export interface ThreadWorkspacePane {
   readonly target: ThreadRouteTarget;
 }
 
-interface ThreadWorkspaceState {
+export interface ThreadWorkspaceGroupSnapshot {
+  readonly panes: ThreadWorkspacePane[];
+  readonly layout: ThreadWorkspaceLayout;
+  readonly columnRatio: number;
+  readonly rowRatio: number;
+}
+
+export interface ThreadWorkspaceState {
   panes: ThreadWorkspacePane[];
   focusedPaneId: string | null;
   layout: ThreadWorkspaceLayout;
   columnRatio: number;
   rowRatio: number;
   maximizedPaneId: string | null;
+  parkedGroup: ThreadWorkspaceGroupSnapshot | null;
   syncRouteTarget: (target: ThreadRouteTarget) => void;
   addTarget: (target: ThreadRouteTarget, region: ThreadWorkspaceDropRegion) => boolean;
   replacePaneTarget: (paneId: string, target: ThreadRouteTarget) => void;
@@ -103,7 +111,44 @@ const initialState = {
   columnRatio: 50,
   rowRatio: 50,
   maximizedPaneId: null as string | null,
+  parkedGroup: null as ThreadWorkspaceGroupSnapshot | null,
 };
+
+const EMPTY_WORKSPACE_GROUP_PANES: readonly ThreadWorkspacePane[] = [];
+
+export function selectThreadWorkspaceGroupPanes(
+  state: Pick<ThreadWorkspaceState, "panes" | "parkedGroup">,
+): readonly ThreadWorkspacePane[] {
+  if (state.panes.length > 1) return state.panes;
+  return state.parkedGroup?.panes ?? EMPTY_WORKSPACE_GROUP_PANES;
+}
+
+function snapshotWorkspaceGroup(
+  state: Pick<ThreadWorkspaceState, "panes" | "layout" | "columnRatio" | "rowRatio">,
+): ThreadWorkspaceGroupSnapshot {
+  return {
+    panes: state.panes,
+    layout: state.layout,
+    columnRatio: state.columnRatio,
+    rowRatio: state.rowRatio,
+  };
+}
+
+function restoredWorkspaceGroup(group: ThreadWorkspaceGroupSnapshot, target: ThreadRouteTarget) {
+  const existing = findPaneByTarget(group.panes, target);
+  if (!existing) return null;
+  return {
+    panes: group.panes.map((pane) =>
+      pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
+    ),
+    focusedPaneId: existing.id,
+    layout: group.layout,
+    columnRatio: group.columnRatio,
+    rowRatio: group.rowRatio,
+    maximizedPaneId: null,
+    parkedGroup: null,
+  };
+}
 
 export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) => ({
   ...initialState,
@@ -120,9 +165,27 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       });
       return;
     }
+    if (state.parkedGroup) {
+      const restored = restoredWorkspaceGroup(state.parkedGroup, target);
+      if (restored) {
+        set(restored);
+        return;
+      }
+    }
     if (state.panes.length === 0 || state.focusedPaneId === null) {
       const pane = createPane(target);
       set({ panes: [pane], focusedPaneId: pane.id, layout: "single" });
+      return;
+    }
+    if (state.panes.length > 1) {
+      const pane = createPane(target);
+      set({
+        panes: [pane],
+        focusedPaneId: pane.id,
+        layout: "single",
+        maximizedPaneId: null,
+        parkedGroup: snapshotWorkspaceGroup(state),
+      });
       return;
     }
     set({
@@ -145,6 +208,18 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       });
       return true;
     }
+    if (state.parkedGroup) {
+      const restored = restoredWorkspaceGroup(state.parkedGroup, target);
+      if (restored) {
+        set(restored);
+        return true;
+      }
+    }
+    if (state.panes.length === 0) {
+      const pane = createPane(target);
+      set({ panes: [pane], focusedPaneId: pane.id, layout: "single" });
+      return true;
+    }
     if (state.panes.length >= THREAD_WORKSPACE_MAX_PANES) return false;
 
     const pane = createPane(target);
@@ -156,7 +231,13 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
           ? "rows"
           : "columns"
         : "grid";
-    set({ panes, focusedPaneId: pane.id, layout, maximizedPaneId: null });
+    set({
+      panes,
+      focusedPaneId: pane.id,
+      layout,
+      maximizedPaneId: null,
+      parkedGroup: null,
+    });
     return true;
   },
   replacePaneTarget: (paneId, target) => {
@@ -171,6 +252,13 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
         maximizedPaneId: null,
       });
       return;
+    }
+    if (state.parkedGroup) {
+      const restored = restoredWorkspaceGroup(state.parkedGroup, target);
+      if (restored) {
+        set(restored);
+        return;
+      }
     }
     if (!state.panes.some((pane) => pane.id === paneId)) return;
     set({
@@ -198,6 +286,7 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       focusedPaneId: nextFocusedPaneId,
       layout: layoutAfterPaneCount(panes.length, state.layout),
       maximizedPaneId: state.maximizedPaneId === paneId ? null : state.maximizedPaneId,
+      parkedGroup: null,
     });
   },
   swapPanes: (sourcePaneId, targetPaneId) => {
