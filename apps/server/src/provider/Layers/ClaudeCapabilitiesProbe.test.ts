@@ -100,7 +100,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "          session: { total_cost_usd: 0, total_api_duration_ms: 0, total_duration_ms: 0, total_lines_added: 0, total_lines_removed: 0, model_usage: {} },",
           '          subscription_type: "pro",',
           "          rate_limits_available: true,",
-          "          rate_limits: { five_hour: { utilization: 64.6, resets_at: null } },",
+          '          rate_limits: { five_hour: { utilization: 64.6, resets_at: null }, seven_day: { utilization: 18.7, resets_at: "2026-08-31T05:00:00Z" } },',
           "          behaviors: null,",
           "        },",
           "      },",
@@ -145,6 +145,14 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         subscriptionType: "pro",
         tokenSource: "oauth",
         subscriptionUsedPercent: 65,
+        subscriptionUsage: {
+          current: { usedPercent: 65, durationMins: 300 },
+          weekly: {
+            usedPercent: 19,
+            durationMins: 10_080,
+            resetsAt: "2026-08-31T05:00:00.000Z",
+          },
+        },
         apiProvider: undefined,
         slashCommands: [
           {

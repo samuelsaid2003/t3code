@@ -3,6 +3,7 @@ import {
   type ModelCapabilities,
   type ModelSelection,
   type ServerProviderModel,
+  type ServerProviderSubscriptionUsage,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -42,7 +43,7 @@ import {
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
-import { extractClaudeSubscriptionUsedPercent } from "./claudeSubscriptionUsage.ts";
+import { extractClaudeSubscriptionUsage } from "./claudeSubscriptionUsage.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -638,6 +639,7 @@ type ClaudeCapabilitiesProbe = {
   readonly subscriptionType: string | undefined;
   readonly tokenSource: string | undefined;
   readonly subscriptionUsedPercent: number | undefined;
+  readonly subscriptionUsage?: ServerProviderSubscriptionUsage;
   /**
    * Active API backend reported by the SDK's `AccountInfo`. Anthropic OAuth
    * login only applies when `"firstParty"`; for Amazon Bedrock (`"bedrock"`)
@@ -772,6 +774,7 @@ const probeClaudeCapabilities = (
       });
       const init = await q.initializationResult();
       const usage = await readClaudeSubscriptionUsage(q);
+      const subscriptionUsage = extractClaudeSubscriptionUsage(usage);
       const account = init.account as
         | {
             readonly email?: string;
@@ -784,7 +787,8 @@ const probeClaudeCapabilities = (
         email: account?.email,
         subscriptionType: account?.subscriptionType,
         tokenSource: account?.tokenSource,
-        subscriptionUsedPercent: extractClaudeSubscriptionUsedPercent(usage),
+        subscriptionUsedPercent: subscriptionUsage?.current?.usedPercent,
+        ...(subscriptionUsage ? { subscriptionUsage } : {}),
         apiProvider: account?.apiProvider,
         slashCommands: parseClaudeInitializationCommands(init.commands),
       } satisfies ClaudeCapabilitiesProbe;
@@ -987,6 +991,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       },
       ...(typeof capabilities.subscriptionUsedPercent === "number"
         ? { subscriptionUsedPercent: capabilities.subscriptionUsedPercent }
+        : {}),
+      ...(capabilities.subscriptionUsage
+        ? { subscriptionUsage: capabilities.subscriptionUsage }
         : {}),
       ...(versionUpgradeMessage ? { message: versionUpgradeMessage } : {}),
     },

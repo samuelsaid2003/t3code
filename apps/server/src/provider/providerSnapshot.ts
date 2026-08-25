@@ -7,6 +7,7 @@ import type {
   ServerProviderSlashCommand,
   ServerProviderModel,
   ServerProviderState,
+  ServerProviderSubscriptionUsage,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as PlatformError from "effect/PlatformError";
@@ -51,6 +52,7 @@ export interface ProviderProbeResult {
   readonly auth: ServerProviderAuth;
   readonly message?: string;
   readonly subscriptionUsedPercent?: number;
+  readonly subscriptionUsage?: ServerProviderSubscriptionUsage;
 }
 
 export interface ServerProviderPresentation {
@@ -254,6 +256,7 @@ export function buildServerProvider(input: {
     ...(typeof input.probe.subscriptionUsedPercent === "number"
       ? { subscriptionUsedPercent: input.probe.subscriptionUsedPercent }
       : {}),
+    ...(input.probe.subscriptionUsage ? { subscriptionUsage: input.probe.subscriptionUsage } : {}),
   };
 }
 

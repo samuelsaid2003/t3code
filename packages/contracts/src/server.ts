@@ -158,6 +158,23 @@ export const ServerProviderUpdateState = Schema.Struct({
 });
 export type ServerProviderUpdateState = typeof ServerProviderUpdateState.Type;
 
+export const ServerProviderSubscriptionUsageWindow = Schema.Struct({
+  /** Percentage of this allowance window consumed, normalized to 0-100. */
+  usedPercent: Schema.Number,
+  /** Provider-reported reset time, when available. */
+  resetsAt: Schema.optionalKey(IsoDateTime),
+  /** Window length when the provider reports it. */
+  durationMins: Schema.optionalKey(PositiveInt),
+});
+export type ServerProviderSubscriptionUsageWindow =
+  typeof ServerProviderSubscriptionUsageWindow.Type;
+
+export const ServerProviderSubscriptionUsage = Schema.Struct({
+  current: Schema.optionalKey(ServerProviderSubscriptionUsageWindow),
+  weekly: Schema.optionalKey(ServerProviderSubscriptionUsageWindow),
+});
+export type ServerProviderSubscriptionUsage = typeof ServerProviderSubscriptionUsage.Type;
+
 export const ServerProvider = Schema.Struct({
   // Routing key for the configured instance this snapshot represents. This
   // is the only stable identity consumers may use for provider routing.
@@ -200,6 +217,11 @@ export const ServerProvider = Schema.Struct({
    * could not read it.
    */
   subscriptionUsedPercent: Schema.optionalKey(Schema.Number),
+  /**
+   * Detailed subscription windows. Optional so older servers and providers
+   * that expose only a primary percentage remain compatible.
+   */
+  subscriptionUsage: Schema.optionalKey(ServerProviderSubscriptionUsage),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 

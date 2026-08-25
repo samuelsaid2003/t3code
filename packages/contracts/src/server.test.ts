@@ -115,6 +115,38 @@ describe("ServerProvider", () => {
 
     expect(parsed.models[0]?.isLegacy).toBe(true);
   });
+
+  it("decodes detailed provider subscription windows", () => {
+    const parsed = decodeServerProvider({
+      ...baseProviderSnapshot,
+      subscriptionUsedPercent: 73,
+      subscriptionUsage: {
+        current: {
+          usedPercent: 73,
+          durationMins: 300,
+          resetsAt: "2026-08-25T05:01:00.000Z",
+        },
+        weekly: {
+          usedPercent: 19,
+          durationMins: 10_080,
+          resetsAt: "2026-08-31T05:00:00.000Z",
+        },
+      },
+    });
+
+    expect(parsed.subscriptionUsage).toEqual({
+      current: {
+        usedPercent: 73,
+        durationMins: 300,
+        resetsAt: "2026-08-25T05:01:00.000Z",
+      },
+      weekly: {
+        usedPercent: 19,
+        durationMins: 10_080,
+        resetsAt: "2026-08-31T05:00:00.000Z",
+      },
+    });
+  });
 });
 
 describe("server config forward compatibility", () => {
