@@ -28,6 +28,13 @@ there, never in the client.
 └────────────────────────────────────────────────┘
 ```
 
+## Desktop windows
+
+The Electron shell can open multiple independent BrowserWindows against the one desktop backend
+process and SQLite owner. Extra windows are additional renderers (hash-routed) with their own UI
+state. File → New Window and Open Thread in New Window never start another server. Preview guest
+webviews may attach from any registered app window; the preview session partition remains shared.
+
 ## The RPC boundary
 
 The client/server contract is an Effect RPC group, not a hand-rolled push protocol. [`rpc.ts`][rpc]

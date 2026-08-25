@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import * as NetService from "@t3tools/shared/Net";
 import {
   HostProcessEnvironment,
@@ -26,6 +27,7 @@ import {
   findFirstAvailableOffset,
   getDevRunnerModeArgs,
   isBrowserAllowedPort,
+  isExecutedAsCliMain,
   resolveModePortOffsets,
   resolveOffset,
   runDevRunnerWithInput,
@@ -74,6 +76,20 @@ const devServerInput = {
 } as const;
 
 it.layer(NodeServices.layer)("dev-runner", (it) => {
+  describe("isExecutedAsCliMain", () => {
+    it.effect("treats this file as main even when import.meta.main is false", () =>
+      Effect.sync(() => {
+        const runnerPath = NodePath.resolve("scripts/dev-runner.ts");
+        const importMeta = {
+          main: false,
+          url: NodeURL.pathToFileURL(runnerPath).href,
+        } as ImportMeta;
+        assert.isTrue(isExecutedAsCliMain(importMeta, runnerPath));
+        assert.isFalse(isExecutedAsCliMain(importMeta, "/tmp/other.ts"));
+      }),
+    );
+  });
+
   describe("getDevRunnerModeArgs", () => {
     it.effect("lets Vite+ honor the desktop dev task graph", () =>
       Effect.sync(() => {

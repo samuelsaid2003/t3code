@@ -3,6 +3,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type * as Electron from "electron";
 import { beforeEach, vi } from "vite-plus/test";
 
@@ -31,10 +32,15 @@ const TestLayer = ElectronWindow.layer.pipe(
   Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
 );
 
-function makeBrowserWindow(input: { readonly id: number; readonly destroyed: boolean }) {
+function makeBrowserWindow(input: {
+  readonly id: number;
+  readonly destroyed: boolean;
+  readonly webContentsId?: number;
+}) {
   return {
     id: input.id,
     isDestroyed: vi.fn(() => input.destroyed),
+    webContents: { id: input.webContentsId ?? input.id },
   } as unknown as Electron.BrowserWindow;
 }
 
@@ -107,6 +113,21 @@ describe("ElectronWindow", () => {
       assert.equal(error.message, 'Failed to create Electron BrowserWindow "T3 Code" (1100x780).');
       assert.notInclude(error.message, cause.message);
       assert.deepEqual(browserWindowMock.mock.calls, [[options]]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("resolves a live window from its webContents id", () =>
+    Effect.gen(function* () {
+      const target = makeBrowserWindow({ id: 7, destroyed: false, webContentsId: 77 });
+      const other = makeBrowserWindow({ id: 8, destroyed: false, webContentsId: 88 });
+      getAllWindowsMock.mockReturnValue([other, target]);
+
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      const found = yield* electronWindow.windowFromWebContentsId(77);
+      const missing = yield* electronWindow.windowFromWebContentsId(99);
+
+      assert.equal(Option.getOrThrow(found), target);
+      assert.isTrue(Option.isNone(missing));
     }).pipe(Effect.provide(TestLayer)),
   );
 

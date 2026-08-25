@@ -20,6 +20,7 @@ import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import type * as Electron from "electron";
 
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
@@ -33,6 +34,8 @@ import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import { sanitizeDesktopHashPath } from "../../electron/ElectronProtocol.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import {
@@ -78,10 +81,31 @@ export const getSystemLocale = DesktopIpc.makeSyncIpcMethod({
 export const getWindowFullscreenState = DesktopIpc.makeSyncIpcMethod({
   channel: IpcChannels.GET_WINDOW_FULLSCREEN_STATE_CHANNEL,
   result: Schema.Boolean,
-  handler: Effect.fn("desktop.ipc.window.getWindowFullscreenState")(function* () {
+  handler: Effect.fn("desktop.ipc.window.getWindowFullscreenState")(function* (event) {
     const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const window = yield* electronWindow.currentMainOrFirst;
+    const senderWindow =
+      event?.sender === undefined
+        ? Option.none<Electron.BrowserWindow>()
+        : yield* electronWindow.windowFromWebContentsId(event.sender.id);
+    const window = Option.isSome(senderWindow)
+      ? senderWindow
+      : yield* electronWindow.focusedMainOrFirst;
     return Option.isSome(window) && window.value.isFullScreen();
+  }),
+});
+
+const OpenWindowInput = Schema.Struct({
+  hashPath: Schema.optionalKey(Schema.String),
+});
+
+export const openWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_WINDOW_CHANNEL,
+  payload: Schema.UndefinedOr(OpenWindowInput),
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.openWindow")(function* (input) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    const hashPath = sanitizeDesktopHashPath(input?.hashPath);
+    yield* desktopWindow.createAdditional(hashPath === undefined ? undefined : { hashPath });
   }),
 });
 

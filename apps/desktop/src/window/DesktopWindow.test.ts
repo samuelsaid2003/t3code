@@ -60,11 +60,16 @@ const environmentInput = {
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
+let nextFakeWindowId = 1;
+
 function makeFakeBrowserWindow() {
   const windowListeners = new Map<string, (...args: readonly unknown[]) => void>();
   const webContentsListeners = new Map<string, (...args: readonly unknown[]) => void>();
   let zoomLevel = 0;
+  const id = nextFakeWindowId;
+  nextFakeWindowId += 1;
   const webContents = {
+    id,
     copyImageAt: vi.fn(),
     getURL: vi.fn(() => "t3code-dev://app/"),
     getZoomLevel: vi.fn(() => zoomLevel),
@@ -85,6 +90,7 @@ function makeFakeBrowserWindow() {
   };
 
   const window = {
+    id,
     close: vi.fn(),
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
@@ -205,6 +211,7 @@ function makeTestLayer(input: {
   ) => Effect.Effect<void>;
   readonly openedExternalUrls?: unknown[];
   readonly previewZoomReapplies?: number[];
+  readonly createWindow?: () => Electron.BrowserWindow;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -242,12 +249,11 @@ function makeTestLayer(input: {
 
   const electronWindowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         input.createdWindowOptions?.push(options);
-      }).pipe(
-        Effect.andThen(Ref.update(input.createCount, (count) => count + 1)),
-        Effect.as(input.window),
-      ),
+        yield* Ref.update(input.createCount, (count) => count + 1);
+        return input.createWindow?.() ?? input.window;
+      }),
     main: Ref.get(input.mainWindow),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
@@ -256,6 +262,7 @@ function makeTestLayer(input: {
     reveal: () => Effect.void,
     sendAll: () => Effect.void,
     destroyAll: Effect.void,
+    windowFromWebContentsId: () => Ref.get(input.mainWindow),
     syncAllAppearance: (sync) => sync(input.window),
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 
@@ -361,6 +368,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       reveal: (window) => Ref.update(revealedWindows, (windows) => [...windows, window]),
       sendAll: () => Effect.void,
       destroyAll: Effect.void,
+      windowFromWebContentsId: () => currentMainOrFirst,
       syncAllAppearance: (sync) => (fallbackWindow ? sync(fallbackWindow) : Effect.void),
     } satisfies ElectronWindow.ElectronWindow["Service"];
 
@@ -408,6 +416,24 @@ describe("DesktopWindow", () => {
     assert.deepEqual(
       DesktopWindow.resolveInitialMainWindowBounds(persistedBounds, [displays[0]!]),
       DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE,
+    );
+  });
+
+  it("offsets additional windows from the focused window and keeps them on-screen", () => {
+    const source = { x: 100, y: 80, width: 1100, height: 780 };
+    const display = { x: 0, y: 0, width: 1920, height: 1080 };
+
+    assert.deepEqual(DesktopWindow.resolveAdditionalWindowBounds(source, [display]), {
+      x: 132,
+      y: 112,
+      width: 1100,
+      height: 780,
+    });
+    assert.deepEqual(
+      DesktopWindow.resolveAdditionalWindowBounds({ x: 800, y: 400, width: 1100, height: 780 }, [
+        display,
+      ]),
+      { x: 820, y: 300, width: 1100, height: 780 },
     );
   });
 
@@ -1233,6 +1259,41 @@ describe("DesktopWindow", () => {
         assert.equal(yield* Ref.get(scenario.createCalls), 3);
         assert.deepEqual(main.send.mock.calls, [[MENU_ACTION_CHANNEL, "open-settings"]]);
       }).pipe(Effect.provide(scenario.layer));
+    }),
+  );
+
+  it.effect("opens additional windows against the same backend with independent routes", () =>
+    Effect.gen(function* () {
+      const first = makeFakeBrowserWindow();
+      const second = makeFakeBrowserWindow();
+      const created: Electron.BrowserWindow[] = [];
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = makeTestLayer({
+        window: first.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        createWindow: () => {
+          const next = created.length === 0 ? first.window : second.window;
+          created.push(next);
+          return next;
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* desktopWindow.createAdditional({ hashPath: "/env-1/thread-9" });
+
+        assert.equal(yield* Ref.get(createCount), 2);
+        assert.equal(Option.getOrThrow(yield* Ref.get(mainWindow)), first.window);
+        assert.equal(createdWindowOptions[1]?.x, 32);
+        assert.equal(createdWindowOptions[1]?.y, 32);
+        assert.deepEqual(first.loadURL.mock.calls[0], ["t3code-dev://app/"]);
+        assert.deepEqual(second.loadURL.mock.calls[0], ["t3code-dev://app/#/env-1/thread-9"]);
+      }).pipe(Effect.provide(layer));
     }),
   );
 });

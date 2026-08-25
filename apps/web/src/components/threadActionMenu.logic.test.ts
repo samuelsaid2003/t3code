@@ -10,6 +10,7 @@ const baseState: ThreadActionMenuState = {
   canSnoozeNow: true,
   isRegeneratingTitle: false,
   isRunning: false,
+  canOpenInNewWindow: false,
   supports: { settlement: true, snooze: true, pinning: true, titleRegeneration: true },
   snoozePresets: [
     { id: "hour", label: "In 1 hour", whenLabel: "3:00 PM", snoozedUntil: "2026-08-07T15:00:00Z" },
@@ -87,6 +88,11 @@ describe("buildThreadActionMenuItems", () => {
         supports: { settlement: false, snooze: false, pinning: false, titleRegeneration: false },
       }),
     ).toContain("archive");
+  });
+
+  it("offers Open Thread in New Window only when the desktop shell can host it", () => {
+    expect(ids(baseState)).not.toContain("open-in-new-window");
+    expect(ids({ ...baseState, canOpenInNewWindow: true })[0]).toBe("open-in-new-window");
   });
 
   it("disables archive while the thread is running", () => {

@@ -138,9 +138,9 @@ export const make = Effect.gen(function* () {
       yield* electronApp.on("second-instance", () => {
         void runPromise(
           Effect.gen(function* () {
-            const mainWindow = yield* electronWindow.currentMainOrFirst;
-            if (Option.isSome(mainWindow)) {
-              yield* electronWindow.reveal(mainWindow.value);
+            const window = yield* electronWindow.focusedMainOrFirst;
+            if (Option.isSome(window)) {
+              yield* electronWindow.reveal(window.value);
             }
           }),
         );

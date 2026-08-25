@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import type * as Electron from "electron";
@@ -72,6 +73,7 @@ function makeElectronWindowLayer(destroyAll: Effect.Effect<void> = Effect.void) 
     reveal: () => Effect.void,
     sendAll: () => Effect.void,
     destroyAll,
+    windowFromWebContentsId: () => Effect.succeed(Option.none()),
     syncAllAppearance: () => Effect.void,
   });
 }
@@ -84,6 +86,7 @@ function makeDesktopWindowLayer(
 ) {
   return Layer.succeed(DesktopWindow.DesktopWindow, {
     createMain: Effect.die("unexpected window creation"),
+    createAdditional: () => Effect.die("unexpected window creation"),
     ensureMain: Effect.die("unexpected window creation"),
     revealOrCreateMain: Effect.die("unexpected window creation"),
     activate: input.activate ?? Effect.void,

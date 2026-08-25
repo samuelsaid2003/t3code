@@ -25,3 +25,7 @@ pill** fallback because their colors are not controlled by T3 Code.
 To generate a fresh title from the conversation, open a thread's context menu and choose
 **Regenerate title**. While T3 Code is generating it, the action reads **Regenerating…** and cannot
 be selected again. The option is hidden when the connected environment needs a server update.
+
+On desktop, **File → New Window** (`Cmd+Shift+N` on macOS, `Ctrl+Shift+N` elsewhere) opens another
+window against the same backend. **Open Thread in New Window** in a thread's context menu does the
+same with that thread already selected. Each window keeps its own route and UI state.

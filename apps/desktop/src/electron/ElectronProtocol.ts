@@ -20,8 +20,25 @@ export function getDesktopOrigin(isDevelopment: boolean): string {
   return `${getDesktopScheme(isDevelopment)}://${DESKTOP_HOST}`;
 }
 
-export function getDesktopUrl(isDevelopment: boolean): string {
-  return `${getDesktopOrigin(isDevelopment)}/`;
+export function getDesktopUrl(isDevelopment: boolean, hashPath?: string): string {
+  const origin = `${getDesktopOrigin(isDevelopment)}/`;
+  const sanitized = sanitizeDesktopHashPath(hashPath);
+  return sanitized === undefined ? origin : `${origin}#${sanitized}`;
+}
+
+/** Hash paths are renderer routes (`/env/thread`). Reject anything that could leave the app origin. */
+export function sanitizeDesktopHashPath(hashPath: string | undefined): string | undefined {
+  if (hashPath === undefined) {
+    return undefined;
+  }
+  const trimmed = hashPath.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.includes("\\")) {
+    return undefined;
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 export class ElectronProtocolRegistrationError extends Schema.TaggedErrorClass<ElectronProtocolRegistrationError>()(

@@ -110,6 +110,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
         sentStates.push(state as DesktopUpdateState);
       }),
     destroyAll: Effect.void,
+    windowFromWebContentsId: () => Effect.succeed(Option.none()),
     syncAllAppearance: () => Effect.void,
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 

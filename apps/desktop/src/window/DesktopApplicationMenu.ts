@@ -56,6 +56,11 @@ const zoomMainWindow = Effect.fn("desktop.menu.zoomMainWindow")(function* (
   yield* desktopWindow.zoomMain(direction);
 });
 
+const createAdditionalWindow = Effect.gen(function* () {
+  const desktopWindow = yield* DesktopWindow.DesktopWindow;
+  yield* desktopWindow.createAdditional();
+}).pipe(Effect.asVoid);
+
 const checkForUpdatesFromMenu = Effect.gen(function* () {
   const updates = yield* DesktopUpdates.DesktopUpdates;
   const electronDialog = yield* ElectronDialog.ElectronDialog;
@@ -137,6 +142,9 @@ export const make = Effect.gen(function* () {
     const zoomClick = (direction: DesktopWindow.MainWindowZoomDirection) => () => {
       runMenuEffect(`zoom-${direction}`, zoomMainWindow(direction));
     };
+    const newWindowClick = () => {
+      runMenuEffect("new-window", createAdditionalWindow);
+    };
     const template: Electron.MenuItemConstructorOptions[] = [];
 
     if (environment.platform === "darwin") {
@@ -170,6 +178,11 @@ export const make = Effect.gen(function* () {
       {
         label: "File",
         submenu: [
+          {
+            label: "New Window",
+            accelerator: "CmdOrCtrl+Shift+N",
+            click: newWindowClick,
+          },
           ...(environment.platform === "darwin"
             ? []
             : [
@@ -178,8 +191,8 @@ export const make = Effect.gen(function* () {
                   accelerator: "CmdOrCtrl+,",
                   click: settingsClick,
                 },
-                { type: "separator" as const },
               ]),
+          { type: "separator" as const },
           { role: environment.platform === "darwin" ? "close" : "quit" },
         ],
       },

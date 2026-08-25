@@ -1138,6 +1138,12 @@ export interface DesktopBridge {
    */
   onQuitShortcut?: (listener: (state: "down" | "up") => void) => () => void;
   getWindowFullscreenState: () => boolean;
+  /**
+   * Open another desktop window against the already-running backend.
+   * Optional: older desktop builds lack it. `hashPath` is a renderer route
+   * such as `/{environmentId}/{threadId}`.
+   */
+  openWindow?: (input?: { hashPath?: string }) => Promise<void>;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;

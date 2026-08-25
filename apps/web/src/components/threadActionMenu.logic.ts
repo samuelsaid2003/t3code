@@ -8,6 +8,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
  */
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
+  | "open-in-new-window"
   | "pin"
   | "unpin"
   | "settle"
@@ -34,6 +35,8 @@ export interface ThreadActionMenuState {
   readonly isRegeneratingTitle: boolean;
   /** Archive rejects a thread with an active turn, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
+  /** Desktop-only: another Electron window against the same backend. */
+  readonly canOpenInNewWindow: boolean;
   readonly supports: {
     readonly settlement: boolean;
     readonly snooze: boolean;
@@ -58,6 +61,15 @@ export function buildThreadActionMenuItems(
             id: "new-thread-on-branch" as const,
             label: `New thread on ${state.branch}`,
             icon: "message-square-plus",
+          },
+        ]
+      : []),
+    ...(state.canOpenInNewWindow
+      ? [
+          {
+            id: "open-in-new-window" as const,
+            label: "Open Thread in New Window",
+            icon: "app-window",
           },
         ]
       : []),

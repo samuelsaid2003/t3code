@@ -37,6 +37,7 @@ import {
   getSystemLocale,
   getWindowFullscreenState,
   openExternal,
+  openWindow,
   probeRemoteEditors,
   pickFolder,
   pickProjectFavicon,
@@ -82,6 +83,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(setWslDistro);
   yield* ipc.handle(setWslOnly);
 
+  yield* ipc.handle(openWindow);
   yield* ipc.handle(pickFolder);
   yield* ipc.handle(pickProjectFavicon);
   yield* ipc.handle(pickThemeFiles);

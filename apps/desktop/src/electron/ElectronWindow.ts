@@ -91,6 +91,9 @@ export class ElectronWindow extends Context.Service<
     readonly reveal: (window: Electron.BrowserWindow) => Effect.Effect<void>;
     readonly sendAll: (channel: string, ...args: readonly unknown[]) => Effect.Effect<void>;
     readonly destroyAll: Effect.Effect<void>;
+    readonly windowFromWebContentsId: (
+      webContentsId: number,
+    ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly syncAllAppearance: <E, R>(
       sync: (window: Electron.BrowserWindow) => Effect.Effect<void, E, R>,
     ) => Effect.Effect<void, E, R>;
@@ -257,6 +260,18 @@ export const make = Effect.gen(function* () {
               }),
           }).pipe(Effect.orDie);
         }
+      }),
+    windowFromWebContentsId: (webContentsId) =>
+      Effect.gen(function* () {
+        for (const window of yield* listWindows) {
+          if (yield* isWindowDestroyed(window)) {
+            continue;
+          }
+          if (window.webContents.id === webContentsId) {
+            return Option.some(window);
+          }
+        }
+        return Option.none<Electron.BrowserWindow>();
       }),
     destroyAll: Effect.gen(function* () {
       let firstFailure: Cause.Cause<never> | undefined;

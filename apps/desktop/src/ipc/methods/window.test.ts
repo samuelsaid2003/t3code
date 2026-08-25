@@ -10,9 +10,11 @@ import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import {
   getLocalEnvironmentBootstraps,
   getWindowFullscreenState,
+  openWindow,
   pickProjectFavicon,
 } from "./window.ts";
 
@@ -138,15 +140,48 @@ describe("getLocalEnvironmentBootstraps", () => {
 });
 
 describe("getWindowFullscreenState", () => {
-  it.effect("reads the current native window state", () => {
-    const window = { isFullScreen: () => true } as Electron.BrowserWindow;
+  it.effect("reads the sending window rather than the first window", () => {
+    const focused = { id: 1, isFullScreen: () => false, webContents: { id: 11 } };
+    const sender = { id: 2, isFullScreen: () => true, webContents: { id: 22 } };
 
     return Effect.gen(function* () {
-      assert.isTrue(yield* getWindowFullscreenState.handler());
+      assert.isTrue(
+        yield* getWindowFullscreenState.handler({
+          returnValue: undefined,
+          sender: { id: 22 },
+        }),
+      );
     }).pipe(
       Effect.provide(
         Layer.mock(ElectronWindow.ElectronWindow)({
-          currentMainOrFirst: Effect.succeed(Option.some(window)),
+          focusedMainOrFirst: Effect.succeed(Option.some(focused as Electron.BrowserWindow)),
+          windowFromWebContentsId: (id) =>
+            Effect.succeed(
+              id === 22
+                ? Option.some(sender as Electron.BrowserWindow)
+                : Option.none<Electron.BrowserWindow>(),
+            ),
+        }),
+      ),
+    );
+  });
+});
+
+describe("openWindow", () => {
+  it.effect("opens an additional window with a sanitized hash route", () => {
+    const hashPaths: Array<string | undefined> = [];
+
+    return Effect.gen(function* () {
+      yield* openWindow.handler({ hashPath: "/env-1/thread-9" });
+      yield* openWindow.handler({ hashPath: "https://evil.example/" });
+      assert.deepEqual(hashPaths, ["/env-1/thread-9", undefined]);
+    }).pipe(
+      Effect.provide(
+        Layer.mock(DesktopWindow.DesktopWindow)({
+          createAdditional: (input) =>
+            Effect.sync(() => {
+              hashPaths.push(input?.hashPath);
+            }).pipe(Effect.as({} as Electron.BrowserWindow)),
         }),
       ),
     );

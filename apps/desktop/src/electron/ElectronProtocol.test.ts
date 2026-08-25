@@ -23,6 +23,18 @@ describe("ElectronProtocol", () => {
     unhandleMock.mockReset();
   });
 
+  it("loads hash-routed desktop URLs and rejects unsafe paths", () => {
+    assert.equal(ElectronProtocol.getDesktopUrl(false), "t3code://app/");
+    assert.equal(
+      ElectronProtocol.getDesktopUrl(true, "/env-1/thread-9"),
+      "t3code-dev://app/#/env-1/thread-9",
+    );
+    assert.isUndefined(ElectronProtocol.sanitizeDesktopHashPath("https://evil.example/"));
+    assert.isUndefined(ElectronProtocol.sanitizeDesktopHashPath("//evil.example"));
+    assert.isUndefined(ElectronProtocol.sanitizeDesktopHashPath("env-1/thread-9"));
+    assert.equal(ElectronProtocol.sanitizeDesktopHashPath("/env-1/thread-9"), "/env-1/thread-9");
+  });
+
   it.effect("proxies the stable renderer origin to the current app server", () =>
     Effect.gen(function* () {
       let handler: ((request: Request) => Promise<Response>) | undefined;

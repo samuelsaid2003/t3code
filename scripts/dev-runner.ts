@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -921,7 +923,24 @@ const cliRuntimeLayer = Layer.mergeAll(
   NetService.layer,
 );
 
-if (import.meta.main) {
+export function isExecutedAsCliMain(
+  importMeta: ImportMeta = import.meta,
+  argv1: string | undefined = process.argv[1],
+): boolean {
+  if (importMeta.main === true) {
+    return true;
+  }
+  if (!argv1) {
+    return false;
+  }
+  try {
+    return NodeURL.pathToFileURL(NodePath.resolve(argv1)).href === importMeta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isExecutedAsCliMain()) {
   Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
     Effect.scoped,
     Effect.provide(cliRuntimeLayer),

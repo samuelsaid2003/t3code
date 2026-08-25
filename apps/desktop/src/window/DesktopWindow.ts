@@ -74,10 +74,18 @@ export type DesktopWindowError =
 
 export type MainWindowZoomDirection = "in" | "out" | "reset";
 
+export type CreateAppWindowInput = {
+  readonly kind: "primary" | "additional";
+  readonly hashPath?: string;
+};
+
 export class DesktopWindow extends Context.Service<
   DesktopWindow,
   {
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly createAdditional: (
+      input?: Pick<CreateAppWindowInput, "hashPath">,
+    ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly activate: Effect.Effect<void, DesktopWindowError>;
@@ -155,6 +163,8 @@ function windowBoundsEqual(
   );
 }
 
+const ADDITIONAL_WINDOW_OFFSET_PX = 32;
+
 export function resolveInitialMainWindowBounds(
   persistedBounds: DesktopAppSettings.DesktopWindowBounds | null,
   displays: readonly DisplayBounds[],
@@ -166,6 +176,39 @@ export function resolveInitialMainWindowBounds(
     return persistedBounds;
   }
   return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
+}
+
+export function resolveAdditionalWindowBounds(
+  source: DesktopAppSettings.DesktopWindowBounds,
+  displays: readonly DisplayBounds[],
+): DesktopAppSettings.DesktopWindowBounds {
+  const candidate = DesktopAppSettings.normalizeMainWindowBounds({
+    x: source.x + ADDITIONAL_WINDOW_OFFSET_PX,
+    y: source.y + ADDITIONAL_WINDOW_OFFSET_PX,
+    width: source.width,
+    height: source.height,
+  });
+  if (candidate === null) {
+    return source;
+  }
+  if (
+    displays.length === 0 ||
+    displays.some((display) => windowFitsWithinDisplay(candidate, display))
+  ) {
+    return candidate;
+  }
+  const display =
+    displays.find((candidateDisplay) => windowFitsWithinDisplay(source, candidateDisplay)) ??
+    displays[0];
+  if (display === undefined) {
+    return candidate;
+  }
+  return {
+    x: Math.max(display.x, Math.min(candidate.x, display.x + display.width - candidate.width)),
+    y: Math.max(display.y, Math.min(candidate.y, display.y + display.height - candidate.height)),
+    width: candidate.width,
+    height: candidate.height,
+  };
 }
 
 // A self-contained "Connecting to WSL" splash, shown immediately in wsl-only
@@ -286,7 +329,8 @@ export const make = Effect.gen(function* () {
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
   const runPromise = Effect.runPromiseWith(context);
-  let flushMainWindowBounds: Effect.Effect<void> = Effect.void;
+  const appWindowsRef = yield* Ref.make<ReadonlyArray<Electron.BrowserWindow>>([]);
+  const boundsFlushByWindowId = new Map<number, Effect.Effect<void>>();
 
   const dismissConnectingSplash = Effect.gen(function* () {
     const splash = yield* Ref.getAndSet(splashWindowRef, Option.none());
@@ -311,15 +355,46 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
-  const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const liveAppWindows = Effect.gen(function* () {
+    const registered = yield* Ref.get(appWindowsRef);
+    return registered.filter((window) => !window.isDestroyed());
+  });
 
-  const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
-    Electron.BrowserWindow,
-    DesktopWindowError
-  > {
+  const currentMainWindow = Effect.gen(function* () {
+    const registered = yield* liveAppWindows;
+    const main = yield* electronWindow.main.pipe(Effect.flatMap(withoutSplash));
+    if (Option.isSome(main) && registered.includes(main.value)) {
+      return main;
+    }
+    return Option.fromNullishOr(registered[0] ?? null);
+  });
+
+  const focusedMainWindow = Effect.gen(function* () {
+    const registered = yield* liveAppWindows;
+    const focused = yield* electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+    if (Option.isSome(focused) && registered.includes(focused.value)) {
+      return focused;
+    }
+    return yield* currentMainWindow;
+  });
+
+  const promoteMainIfNeeded = Effect.gen(function* () {
+    const main = yield* electronWindow.main.pipe(Effect.flatMap(withoutSplash));
+    if (Option.isSome(main) && !main.value.isDestroyed()) {
+      return;
+    }
+    const next = (yield* liveAppWindows)[0];
+    if (next !== undefined) {
+      yield* electronWindow.setMain(next);
+    }
+  });
+
+  const createWindow = Effect.fn("desktop.window.createWindow")(function* (
+    input: CreateAppWindowInput,
+  ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     yield* previewManager.getBrowserSession();
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const loadUrl = getDesktopUrl(environment.isDevelopment, input.hashPath);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -341,11 +416,34 @@ export const make = Effect.gen(function* () {
         : yield* logWindowWarning("failed to read connected displays; using defaults", {
             cause: displayBoundsResult.cause,
           }).pipe(Effect.as<readonly Electron.Rectangle[]>([]));
-    const initialBounds = resolveInitialMainWindowBounds(persistedBounds, displayBounds);
-    const restoredPersistedBounds = persistedBounds !== null && initialBounds === persistedBounds;
-    if (persistedBounds !== null && initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE) {
+    const focusedWindow = yield* focusedMainWindow;
+    const focusedBounds =
+      Option.isSome(focusedWindow) && !focusedWindow.value.isDestroyed()
+        ? focusedWindow.value.getBounds()
+        : null;
+    const additionalSourceBounds =
+      focusedBounds === null
+        ? null
+        : DesktopAppSettings.normalizeMainWindowBounds({
+            x: Math.round(focusedBounds.x),
+            y: Math.round(focusedBounds.y),
+            width: Math.round(focusedBounds.width),
+            height: Math.round(focusedBounds.height),
+          });
+    const initialBounds =
+      input.kind === "additional" && additionalSourceBounds !== null
+        ? resolveAdditionalWindowBounds(additionalSourceBounds, displayBounds)
+        : resolveInitialMainWindowBounds(persistedBounds, displayBounds);
+    const restoredPersistedBounds =
+      input.kind === "primary" && persistedBounds !== null && initialBounds === persistedBounds;
+    if (
+      input.kind === "primary" &&
+      persistedBounds !== null &&
+      initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE
+    ) {
       yield* logWindowWarning("saved main window bounds could not be restored; using defaults");
     }
+    const restoreMaximized = input.kind === "primary" && persistedSettings.mainWindowMaximized;
     const window = yield* electronWindow.create({
       ...initialBounds,
       minWidth: 840,
@@ -377,7 +475,8 @@ export const make = Effect.gen(function* () {
     }
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
-    let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
+    let boundsPersistenceEnabled =
+      input.kind === "additional" || persistedBounds === null || restoredPersistedBounds;
     const readPersistableBounds = (): DesktopAppSettings.DesktopWindowBounds | null => {
       if (window.isDestroyed()) {
         return null;
@@ -460,7 +559,7 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    flushMainWindowBounds = flushBoundsPersist;
+    boundsFlushByWindowId.set(window.id, flushBoundsPersist);
 
     yield* previewManager.setMainWindow(window);
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
@@ -620,7 +719,7 @@ export const make = Effect.gen(function* () {
       if (window.isDestroyed()) {
         return;
       }
-      void window.loadURL(applicationUrl).catch(() => undefined);
+      void window.loadURL(loadUrl).catch(() => undefined);
     };
     const scheduleDevelopmentLoadRetry = () => {
       if (developmentLoadRetryFiber !== undefined || window.isDestroyed()) {
@@ -738,7 +837,7 @@ export const make = Effect.gen(function* () {
       }
       // Reveal the real window, then close the connecting splash (if any) so the
       // two don't overlap and there's no blank gap between them.
-      if (persistedSettings.mainWindowMaximized) {
+      if (restoreMaximized) {
         window.maximize();
       }
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
@@ -752,14 +851,24 @@ export const make = Effect.gen(function* () {
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
-      void runPromise(electronWindow.clearMain(Option.some(window)));
+      boundsFlushByWindowId.delete(window.id);
+      void runPromise(
+        Effect.gen(function* () {
+          yield* Ref.update(appWindowsRef, (windows) =>
+            windows.filter((candidate) => candidate !== window),
+          );
+          yield* electronWindow.clearMain(Option.some(window));
+          yield* promoteMainIfNeeded;
+        }),
+      );
     });
 
+    yield* Ref.update(appWindowsRef, (windows) => [...windows, window]);
     return window;
   });
 
   const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
+    const window = yield* createWindow({ kind: "primary" });
     yield* electronWindow.setMain(window);
     yield* logWindowInfo("main window created");
     return window;
@@ -772,6 +881,25 @@ export const make = Effect.gen(function* () {
     }
     return yield* createMain;
   }).pipe(Effect.withSpan("desktop.window.ensureMain"));
+
+  const createAdditional = Effect.fn("desktop.window.createAdditional")(function* (
+    input?: Pick<CreateAppWindowInput, "hashPath">,
+  ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
+    const backendReady = yield* Ref.get(backendReadyRef);
+    if (!backendReady) {
+      return yield* ensureMain;
+    }
+    const window = yield* createWindow({
+      kind: "additional",
+      ...(input?.hashPath === undefined ? {} : { hashPath: input.hashPath }),
+    });
+    const main = yield* electronWindow.main.pipe(Effect.flatMap(withoutSplash));
+    if (Option.isNone(main)) {
+      yield* electronWindow.setMain(window);
+    }
+    yield* logWindowInfo("additional window created");
+    return window;
+  });
 
   const revealOrCreateMain = Effect.gen(function* () {
     const window = yield* ensureMain;
@@ -833,8 +961,24 @@ export const make = Effect.gen(function* () {
     Effect.withSpan("desktop.window.showConnectingSplash"),
   );
 
+  const flushMainWindowBounds = Effect.gen(function* () {
+    const focused = yield* focusedMainWindow;
+    const focusedFlush =
+      Option.isSome(focused) && !focused.value.isDestroyed()
+        ? boundsFlushByWindowId.get(focused.value.id)
+        : undefined;
+    if (focusedFlush !== undefined) {
+      yield* focusedFlush;
+      return;
+    }
+    for (const flush of boundsFlushByWindowId.values()) {
+      yield* flush;
+    }
+  }).pipe(Effect.withSpan("desktop.window.flushMainWindowBounds"));
+
   return DesktopWindow.of({
     createMain,
+    createAdditional,
     ensureMain,
     revealOrCreateMain,
     activate: Effect.gen(function* () {
@@ -868,9 +1012,7 @@ export const make = Effect.gen(function* () {
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
       Effect.withSpan("desktop.window.handleBackendNotReady"),
     ),
-    flushMainWindowBounds: Effect.suspend(() => flushMainWindowBounds).pipe(
-      Effect.withSpan("desktop.window.flushMainWindowBounds"),
-    ),
+    flushMainWindowBounds,
     dispatchMenuAction: Effect.fn("desktop.window.dispatchMenuAction")(function* (action) {
       yield* Effect.annotateCurrentSpan({ action });
       const existingWindow = yield* focusedMainWindow;

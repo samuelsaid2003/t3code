@@ -102,6 +102,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { canOpenThreadInNewWindow, openThreadInNewWindow } from "../lib/openThreadInNewWindow";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -3066,6 +3067,7 @@ export default function Sidebar() {
               isRegeneratingTitle,
               isRunning:
                 thread.session?.status === "running" && thread.session.activeTurnId != null,
+              canOpenInNewWindow: canOpenThreadInNewWindow(),
               supports: {
                 settlement: supportsSettlement,
                 snooze: supportsSnooze,
@@ -3086,6 +3088,9 @@ export default function Sidebar() {
           return;
         }
         switch (clicked.value) {
+          case "open-in-new-window":
+            openThreadInNewWindow(threadRef);
+            return;
           case "new-thread-on-branch": {
             // Explicit branch carry-over: reuse the thread's worktree when it
             // has one, otherwise its branch on the local checkout.

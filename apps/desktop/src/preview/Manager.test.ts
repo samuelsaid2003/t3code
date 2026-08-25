@@ -1836,6 +1836,39 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("restores background throttling for every registered app window", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const firstWindowThrottling = vi.fn();
+        const secondWindowThrottling = vi.fn();
+        const capturePage = vi.fn(async () => ({
+          toJPEG: () => Buffer.from("recording-frame"),
+          getSize: () => ({ width: 1280, height: 720 }),
+        }));
+        fromId.mockReturnValue(makeTestPreviewWebContents(capturePage));
+
+        yield* manager.createTab("tab_multi_window_throttling");
+        yield* manager.registerWebview("tab_multi_window_throttling", 42);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: { setBackgroundThrottling: firstWindowThrottling },
+        } as never);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: { setBackgroundThrottling: secondWindowThrottling },
+        } as never);
+
+        yield* manager.startRecording("tab_multi_window_throttling");
+        yield* manager.stopRecording("tab_multi_window_throttling");
+
+        expect(firstWindowThrottling.mock.calls).toEqual([[false], [true]]);
+        expect(secondWindowThrottling.mock.calls).toEqual([[false], [true]]);
+      }),
+    ),
+  );
+
   effectIt.effect("does not commit failed starts and retries throttle restoration", () =>
     withManager((manager) =>
       Effect.gen(function* () {

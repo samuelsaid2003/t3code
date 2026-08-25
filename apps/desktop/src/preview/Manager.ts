@@ -3,7 +3,8 @@
  *
  * Hosts per-tab Chromium WebContents references (the actual <webview>
  * elements live in the renderer; we only attach listeners and forward state
- * here). Single layer-scoped browser session partition.
+ * here). Single layer-scoped browser session partition shared by every app
+ * window. Guest webviews may attach from any registered app window.
  */
 import type {
   DesktopPreviewAnnotationTheme,
@@ -528,6 +529,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const closingTabIdsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
   let frameCaptureWindowOpen = true;
   let currentMainWindow: BrowserWindow | undefined;
+  let appWindows: BrowserWindow[] = [];
   let mainWindowCleanupFiber: Fiber.Fiber<void, never> | undefined;
   const tabLifecycleLocks = new Map<
     string,
@@ -596,9 +598,12 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
   const setFrameCaptureBackgroundThrottling = Effect.fnUntraced(function* (enabled: boolean) {
-    const mainWindow = yield* Ref.get(mainWindowRef);
-    if (Option.isNone(mainWindow)) return;
-    yield* setWindowBackgroundThrottling(mainWindow.value, enabled);
+    const windows = appWindows.filter((window) => !window.isDestroyed());
+    if (windows.length === 0) return;
+    yield* Effect.forEach(windows, (window) => setWindowBackgroundThrottling(window, enabled), {
+      concurrency: "unbounded",
+      discard: true,
+    });
   });
   const stopFrameCapture = Effect.fn("PreviewManager.stopFrameCapture")(function* (
     tabId: string,
@@ -1641,26 +1646,24 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         }).pipe(Effect.ignore),
       );
     };
-    const forwardShortcut = Effect.fn("PreviewManager.forwardShortcut")(function* (
-      event: Electron.Event,
-      input: Electron.Input,
-    ) {
-      const mainWindow = yield* Ref.get(mainWindowRef);
-      if (!isAppShortcut(input) || Option.isNone(mainWindow) || mainWindow.value.isDestroyed()) {
-        return;
-      }
-      event.preventDefault();
-      mainWindow.value.webContents.sendInputEvent({
-        type: "keyDown",
-        keyCode: input.key,
-        modifiers: [
-          ...(input.meta ? (["meta"] as const) : []),
-          ...(input.shift ? (["shift"] as const) : []),
-          ...(input.control ? (["control"] as const) : []),
-          ...(input.alt ? (["alt"] as const) : []),
-        ],
+    const forwardShortcut = (event: Electron.Event, input: Electron.Input) =>
+      Effect.sync(() => {
+        const host = wc.hostWebContents;
+        if (!isAppShortcut(input) || host == null || host.isDestroyed()) {
+          return;
+        }
+        event.preventDefault();
+        host.sendInputEvent({
+          type: "keyDown",
+          keyCode: input.key,
+          modifiers: [
+            ...(input.meta ? (["meta"] as const) : []),
+            ...(input.shift ? (["shift"] as const) : []),
+            ...(input.control ? (["control"] as const) : []),
+            ...(input.alt ? (["alt"] as const) : []),
+          ],
+        });
       });
-    });
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
       if (isPreviewRefreshShortcut(input)) {
         event.preventDefault();
@@ -1723,6 +1726,34 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     yield* install().pipe(Effect.onError(() => Scope.close(scope, Exit.void).pipe(Effect.ignore)));
   });
 
+  const liveAppWindows = () => appWindows.filter((candidate) => !candidate.isDestroyed());
+
+  const isRegisteredAppHost = (
+    host: { readonly isDestroyed?: () => boolean } | null | undefined,
+  ) => {
+    if (host == null) {
+      return false;
+    }
+    if (typeof host.isDestroyed === "function" && host.isDestroyed()) {
+      return false;
+    }
+    return liveAppWindows().some((candidate) => candidate.webContents === host);
+  };
+
+  const closeTabsHostedByWindow = Effect.fn("PreviewManager.closeTabsHostedByWindow")(function* (
+    window: BrowserWindow,
+  ) {
+    const tabs = yield* SynchronizedRef.get(tabsRef);
+    const attached = yield* Ref.get(attachedRef);
+    for (const [tabId, tab] of tabs) {
+      const attachment = tab.webContentsId === null ? undefined : attached.get(tab.webContentsId);
+      const host = attachment?.webContents.hostWebContents;
+      if (host === window.webContents) {
+        yield* closeTab(tabId).pipe(Effect.ignore);
+      }
+    }
+  });
+
   const setMainWindow = Effect.fn("PreviewManager.setMainWindow")(function* (
     window: BrowserWindow,
   ) {
@@ -1735,19 +1766,30 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         if (sessions.size > 0) {
           yield* setWindowBackgroundThrottling(window, false);
         }
+        if (!appWindows.includes(window)) {
+          appWindows = [...appWindows, window];
+        }
         yield* Ref.set(mainWindowRef, Option.some(window));
         currentMainWindow = window;
         frameCaptureWindowOpen = true;
         window.once("closed", () => {
-          if (currentMainWindow !== window) return;
-          currentMainWindow = undefined;
-          frameCaptureWindowOpen = false;
-          mainWindowCleanupFiber = runFork(
-            Effect.all([closeAllPictureInPicture(), stopAllRecordings()], {
-              concurrency: "unbounded",
-              discard: true,
-            }).pipe(Effect.ignore),
-          );
+          appWindows = appWindows.filter((candidate) => candidate !== window);
+          const remaining = liveAppWindows();
+          if (currentMainWindow === window) {
+            currentMainWindow = remaining[0];
+            runFork(Ref.set(mainWindowRef, Option.fromNullishOr(remaining[0] ?? null)));
+          }
+          if (remaining.length === 0) {
+            frameCaptureWindowOpen = false;
+            mainWindowCleanupFiber = runFork(
+              Effect.all([closeAllPictureInPicture(), stopAllRecordings()], {
+                concurrency: "unbounded",
+                discard: true,
+              }).pipe(Effect.ignore),
+            );
+            return;
+          }
+          mainWindowCleanupFiber = runFork(closeTabsHostedByWindow(window).pipe(Effect.ignore));
         });
         return [undefined, sessions] as const;
       }),
@@ -1886,12 +1928,12 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       return yield* new PreviewTabNotFoundError({ tabId });
     }
     const wc = webContents.fromId(webContentsId);
-    const mainWindow = yield* Ref.get(mainWindowRef);
+    const registeredHosts = liveAppWindows();
     if (
       !wc ||
       wc.isDestroyed() ||
       wc.getType() !== "webview" ||
-      (Option.isSome(mainWindow) && wc.hostWebContents !== mainWindow.value.webContents)
+      (registeredHosts.length > 0 && !isRegisteredAppHost(wc.hostWebContents))
     ) {
       return yield* new PreviewWebContentsNotFoundError({ tabId, webContentsId });
     }

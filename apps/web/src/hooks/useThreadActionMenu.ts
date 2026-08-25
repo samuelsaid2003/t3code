@@ -29,6 +29,7 @@ import {
   readEnvironmentSupportsTitleRegeneration,
   readThreadShell,
 } from "../state/entities";
+import { canOpenThreadInNewWindow, openThreadInNewWindow } from "../lib/openThreadInNewWindow";
 import { readLocalApi } from "../localApi";
 import { useUiStateStore } from "../uiStateStore";
 import { useCopyToClipboard } from "./useCopyToClipboard";
@@ -142,6 +143,7 @@ export function useThreadActionMenu(input: {
           canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
           isRegeneratingTitle,
           isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
+          canOpenInNewWindow: canOpenThreadInNewWindow(),
           supports,
           snoozePresets,
         });
@@ -187,6 +189,9 @@ export function useThreadActionMenu(input: {
           }
         };
         switch (action) {
+          case "open-in-new-window":
+            openThreadInNewWindow(threadRef);
+            return;
           case "new-thread-on-branch": {
             // Explicit branch carry-over: reuse the thread's worktree when it
             // has one, otherwise its branch on the local checkout.
