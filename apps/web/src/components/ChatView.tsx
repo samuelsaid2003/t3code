@@ -6629,44 +6629,46 @@ function ChatViewContent(props: ChatViewProps) {
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}
-        {!workspacePane || workspaceFocused ? (
-          <WorkspacePageHeader
-            data-chat-header
-            electron={isElectron}
-            reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
-            className="relative bg-background"
-          >
-            {!visibleRightPanelOpen ? panelLayoutControls : null}
-            <ChatHeader
-              {...(!supportsPullRequests || threadRepository === null
-                ? {}
-                : { onOpenPullRequest: openThreadPullRequest })}
-              activeThreadEnvironmentId={activeThread.environmentId}
-              activeThreadId={activeThread.id}
-              {...(routeKind === "draft" && draftId ? { draftId } : {})}
-              activeThreadTitle={activeThread.title}
-              isServerThread={isServerThread}
-              changeRequest={activeThreadChangeRequest}
-              activeProjectName={activeProject?.title}
-              activeProjectCwd={activeProject?.workspaceRoot ?? null}
-              activeProjectFaviconPath={activeProject?.faviconPath ?? null}
-              openInCwd={gitCwd}
-              activeProjectScripts={activeProject?.scripts}
-              preferredScriptId={
-                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-              }
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              rightPanelOpen={visibleRightPanelOpen}
-              gitCwd={gitCwd}
-              onNewThreadInProject={handleNewThreadInActiveProject}
-              onRunProjectScript={runProjectScript}
-              onAddProjectScript={saveProjectScript}
-              onUpdateProjectScript={updateProjectScript}
-              onDeleteProjectScript={deleteProjectScript}
-            />
-          </WorkspacePageHeader>
-        ) : null}
+        <WorkspacePageHeader
+          data-chat-header
+          data-workspace-focused={workspaceFocused ? "true" : "false"}
+          electron={isElectron}
+          reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
+          className={cn(
+            "relative bg-background",
+            workspacePane && !workspaceFocused && "opacity-60",
+          )}
+        >
+          {!visibleRightPanelOpen ? panelLayoutControls : null}
+          <ChatHeader
+            {...(!supportsPullRequests || threadRepository === null
+              ? {}
+              : { onOpenPullRequest: openThreadPullRequest })}
+            activeThreadEnvironmentId={activeThread.environmentId}
+            activeThreadId={activeThread.id}
+            {...(routeKind === "draft" && draftId ? { draftId } : {})}
+            activeThreadTitle={activeThread.title}
+            isServerThread={isServerThread}
+            changeRequest={activeThreadChangeRequest}
+            activeProjectName={activeProject?.title}
+            activeProjectCwd={activeProject?.workspaceRoot ?? null}
+            activeProjectFaviconPath={activeProject?.faviconPath ?? null}
+            openInCwd={gitCwd}
+            activeProjectScripts={activeProject?.scripts}
+            preferredScriptId={
+              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+            }
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            rightPanelOpen={visibleRightPanelOpen}
+            gitCwd={gitCwd}
+            onNewThreadInProject={handleNewThreadInActiveProject}
+            onRunProjectScript={runProjectScript}
+            onAddProjectScript={saveProjectScript}
+            onUpdateProjectScript={updateProjectScript}
+            onDeleteProjectScript={deleteProjectScript}
+          />
+        </WorkspacePageHeader>
 
         <ThreadErrorBanner
           error={visibleThreadError}

@@ -24,7 +24,8 @@ to four visible threads.
 Clicking a thread in the sidebar still opens it in the focused pane. Drag pane headers onto one
 another to swap them, or drag a header into the grid's empty slot to move it. Pane dividers can be
 resized and double-clicked to return to an even split. Double-click a pane header to maximize or
-restore it.
+restore it. An unfocused pane keeps its conversation header in place at reduced opacity, so
+switching panes does not move the conversation content.
 
 Closing a pane closes only that view. It does not stop, settle, archive, or delete the thread. Pane
 arrangement is session-only and returns to one thread when the desktop app reloads or restarts.
