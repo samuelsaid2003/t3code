@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connect T3 Phone"
+  short_description: "Pair or reconnect a real phone to T3S"
+  default_prompt: "Use $connect-t3-phone to create a fresh T3S pairing credential and help me reconnect my iPhone."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test T3 Desktop"
+  short_description: "Verify T3S changes in an isolated desktop app"
+  default_prompt: "Use $test-t3-desktop to launch the isolated T3 Dev app and verify the affected desktop workflow."

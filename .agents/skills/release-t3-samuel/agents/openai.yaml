@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release T3 Samuel"
+  short_description: "Safely publish a signed T3S macOS update"
+  default_prompt: "Use $release-t3-samuel to validate and publish the next T3 Code Samuel macOS release."
