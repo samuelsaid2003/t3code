@@ -50,6 +50,7 @@ export interface ProviderProbeResult {
   readonly status: Exclude<ServerProviderState, "disabled">;
   readonly auth: ServerProviderAuth;
   readonly message?: string;
+  readonly subscriptionUsedPercent?: number;
 }
 
 export interface ServerProviderPresentation {
@@ -250,6 +251,9 @@ export function buildServerProvider(input: {
     slashCommands: [...(input.slashCommands ?? [])],
     skills: [...(input.skills ?? [])],
     ...(versionAdvisory ? { versionAdvisory } : {}),
+    ...(typeof input.probe.subscriptionUsedPercent === "number"
+      ? { subscriptionUsedPercent: input.probe.subscriptionUsedPercent }
+      : {}),
   };
 }
 

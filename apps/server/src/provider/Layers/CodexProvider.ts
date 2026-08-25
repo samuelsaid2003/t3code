@@ -33,6 +33,7 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
+import { extractCodexSubscriptionUsedPercent } from "./codexSubscriptionUsage.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 
@@ -48,6 +49,7 @@ export interface CodexAppServerProviderSnapshot {
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
+  readonly subscriptionUsedPercent?: number;
 }
 
 const REASONING_EFFORT_LABELS: Readonly<Record<string, string>> = {
@@ -401,15 +403,21 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     } satisfies CodexAppServerProviderSnapshot;
   }
 
-  const [skillsResponse, models] = yield* Effect.all(
+  const [skillsResponse, models, rateLimits] = yield* Effect.all(
     [
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
       requestAllCodexModels(client),
+      client.request("account/rateLimits/read", undefined).pipe(Effect.option),
     ],
     { concurrency: "unbounded" },
   );
+
+  const subscriptionUsedPercent = Option.match(rateLimits, {
+    onNone: () => undefined,
+    onSome: (response) => extractCodexSubscriptionUsedPercent(response),
+  });
 
   return {
     account: accountResponse,
@@ -418,6 +426,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       appendCustomCodexModels(models, input.customModels ?? []),
     ),
     skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
+    ...(subscriptionUsedPercent === undefined ? {} : { subscriptionUsedPercent }),
   } satisfies CodexAppServerProviderSnapshot;
 });
 
@@ -620,6 +629,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       status: accountStatus.status,
       auth: accountStatus.auth,
       ...(accountStatus.message ? { message: accountStatus.message } : {}),
+      ...(typeof snapshot.subscriptionUsedPercent === "number"
+        ? { subscriptionUsedPercent: snapshot.subscriptionUsedPercent }
+        : {}),
     },
   });
 });

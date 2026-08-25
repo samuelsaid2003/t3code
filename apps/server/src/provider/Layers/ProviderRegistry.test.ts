@@ -388,6 +388,20 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               input: { hint: "Describe the issue (optional)" },
             },
           ]);
+          assert.isUndefined(status.subscriptionUsedPercent);
+        }),
+      );
+
+      it.effect("surfaces Codex's reported subscription used percent", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                subscriptionUsedPercent: 73,
+              }),
+            ),
+          );
+          assert.strictEqual(status.subscriptionUsedPercent, 73);
         }),
       );
 

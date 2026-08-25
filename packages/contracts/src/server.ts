@@ -194,6 +194,12 @@ export const ServerProvider = Schema.Struct({
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
+  /**
+   * Codex ChatGPT subscription usage as reported by `account/rateLimits/read`
+   * (`rateLimits.primary.usedPercent`). Absent when the provider is not Codex,
+   * the account has no subscription window, or the probe could not read it.
+   */
+  subscriptionUsedPercent: Schema.optionalKey(Schema.Number),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 

@@ -5,12 +5,15 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
+import { primaryServerProvidersAtom } from "../../state/server";
+import { resolveCodexSidebarUsageLabel } from "./codexSidebarUsage";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
@@ -229,10 +232,16 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 });
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
+  const providers = useAtomValue(primaryServerProvidersAtom);
+  const codexUsageLabel = resolveCodexSidebarUsageLabel(providers);
+
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
+      {codexUsageLabel ? (
+        <p className="px-2 pb-1 text-xs text-sidebar-muted-foreground">{codexUsageLabel}</p>
+      ) : null}
       <SidebarUtilityMenu />
     </SidebarFooter>
   );
