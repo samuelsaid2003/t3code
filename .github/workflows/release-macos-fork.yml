@@ -163,7 +163,7 @@ jobs:
         run: |
           mkdir -p release-publish
           find release -maxdepth 1 -type f \
-            \( -name '*.dmg' -o -name '*.zip' -o -name '*.blockmap' -o -name '*.yml' \) \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.blockmap' -o -name 'latest-*.yml' \) \
             -exec cp {} release-publish/ \;
           if [[ "${{ matrix.arch }}" == "x64" ]]; then
             for manifest in release-publish/*-mac.yml; do
