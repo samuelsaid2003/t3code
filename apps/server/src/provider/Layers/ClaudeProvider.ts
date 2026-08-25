@@ -42,6 +42,7 @@ import {
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
+import { extractClaudeSubscriptionUsedPercent } from "./claudeSubscriptionUsage.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -55,6 +56,7 @@ const MINIMUM_CLAUDE_OPUS_5_VERSION = "2.1.219";
 const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
+const CLAUDE_USAGE_PROBE_TIMEOUT_MS = 3_000;
 
 const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5", "claude-opus-5", "claude-sonnet-5"]);
 
@@ -635,6 +637,7 @@ type ClaudeCapabilitiesProbe = {
   readonly email: string | undefined;
   readonly subscriptionType: string | undefined;
   readonly tokenSource: string | undefined;
+  readonly subscriptionUsedPercent: number | undefined;
   /**
    * Active API backend reported by the SDK's `AccountInfo`. Anthropic OAuth
    * login only applies when `"firstParty"`; for Amazon Bedrock (`"bedrock"`)
@@ -716,15 +719,26 @@ function waitForAbortSignal(signal: AbortSignal): Promise<void> {
   });
 }
 
+async function readClaudeSubscriptionUsage(q: ReturnType<typeof claudeQuery>): Promise<unknown> {
+  const unavailable = waitForAbortSignal(AbortSignal.timeout(CLAUDE_USAGE_PROBE_TIMEOUT_MS)).then(
+    () => undefined,
+  );
+
+  return Promise.race([
+    q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET().catch(() => undefined),
+    unavailable,
+  ]);
+}
+
 /**
  * Probe account information by spawning a lightweight Claude Agent SDK
  * session and reading the initialization result.
  *
  * We pass a never-yielding AsyncIterable as the prompt so that no user
  * message is ever written to the subprocess stdin. This means the Claude
- * Code subprocess completes its local initialization IPC (returning
- * account info and slash commands) but never starts an API request to
- * Anthropic. We read the init data and then abort the subprocess.
+ * Code subprocess completes its initialization IPC without starting an
+ * inference request. After initialization we make the SDK's lightweight
+ * account-usage request, then abort the subprocess.
  *
  * This is used as a fallback when `claude auth status` does not include
  * subscription type information.
@@ -757,6 +771,7 @@ const probeClaudeCapabilities = (
         }),
       });
       const init = await q.initializationResult();
+      const usage = await readClaudeSubscriptionUsage(q);
       const account = init.account as
         | {
             readonly email?: string;
@@ -769,6 +784,7 @@ const probeClaudeCapabilities = (
         email: account?.email,
         subscriptionType: account?.subscriptionType,
         tokenSource: account?.tokenSource,
+        subscriptionUsedPercent: extractClaudeSubscriptionUsedPercent(usage),
         apiProvider: account?.apiProvider,
         slashCommands: parseClaudeInitializationCommands(init.commands),
       } satisfies ClaudeCapabilitiesProbe;
@@ -969,6 +985,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...(capabilities.email ? { email: capabilities.email } : {}),
         ...(authMetadata ? authMetadata : {}),
       },
+      ...(typeof capabilities.subscriptionUsedPercent === "number"
+        ? { subscriptionUsedPercent: capabilities.subscriptionUsedPercent }
+        : {}),
       ...(versionUpgradeMessage ? { message: versionUpgradeMessage } : {}),
     },
   });

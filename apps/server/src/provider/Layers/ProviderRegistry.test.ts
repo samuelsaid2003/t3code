@@ -131,6 +131,7 @@ type TestClaudeCapabilities = {
   readonly email: string | undefined;
   readonly subscriptionType: string | undefined;
   readonly tokenSource: string | undefined;
+  readonly subscriptionUsedPercent: number | undefined;
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
 };
@@ -141,6 +142,7 @@ function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
       email: undefined,
       subscriptionType: undefined,
       tokenSource: undefined,
+      subscriptionUsedPercent: undefined,
       apiProvider: undefined,
       slashCommands: [],
       ...overrides,
@@ -1808,6 +1810,24 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                   stderr: "",
                   code: 0,
                 };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      it.effect("surfaces Claude's reported five-hour subscription used percent", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities({ subscriptionUsedPercent: 65 }),
+          );
+          assert.strictEqual(status.subscriptionUsedPercent, 65);
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
