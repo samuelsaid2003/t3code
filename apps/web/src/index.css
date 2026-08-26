@@ -926,6 +926,50 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     z-index: 0;
   }
 
+  /* Thread notes float over the transcript instead of changing its layout.
+     The overlap keeps the note visually joined to the composer surface. */
+  .chat-composer-thread-note-overlay {
+    --glass-opacity: 100%;
+    position: absolute;
+    z-index: 30;
+    right: var(--chat-composer-drawer-inset);
+    bottom: calc(100% - var(--chat-composer-attachment-overlap));
+    left: var(--chat-composer-drawer-inset);
+    width: auto;
+    max-width: none;
+    margin: 0;
+    visibility: hidden;
+    opacity: 0;
+    clip-path: inset(100% 0 0 round 16px 16px 0 0);
+    pointer-events: none;
+    transform: translateY(0.5rem) scale(0.985);
+    transform-origin: bottom center;
+    transition:
+      visibility 0s linear 180ms,
+      opacity 140ms ease,
+      clip-path 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .chat-composer-thread-note-overlay[data-state="open"] {
+    visibility: visible;
+    opacity: 1;
+    clip-path: inset(0 round 16px 16px 0 0);
+    pointer-events: none;
+    transform: translateY(0) scale(1);
+    transition-delay: 0s;
+  }
+
+  .chat-composer-thread-note-overlay[data-state="open"] > * {
+    pointer-events: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-composer-thread-note-overlay {
+      transition: none;
+    }
+  }
+
   :is(.chat-composer-drawer-surface, .chat-composer-top-drawer)[data-variant="error"] {
     --chat-composer-attached-outline: color-mix(in srgb, var(--error) 32%, transparent);
     --chat-composer-attached-tint: color-mix(in srgb, var(--error) 8%, transparent);

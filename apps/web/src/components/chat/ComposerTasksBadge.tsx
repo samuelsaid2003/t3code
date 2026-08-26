@@ -67,7 +67,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
   readonly hasTrailingShoulder?: boolean;
   readonly onDismiss: () => void;
   readonly onToggle: () => void;
-  readonly placement?: "inline" | "tab";
+  readonly placement?: "inline" | "rail" | "tab";
   readonly progress: ComposerTasksProgress;
   readonly steps: readonly ComposerTaskStep[];
 }) {
@@ -110,6 +110,51 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
           <XIcon aria-hidden className="size-2.5" />
         </Button>
       </span>
+    );
+  }
+
+  if (placement === "rail") {
+    return (
+      <div
+        className="chat-composer-shoulder-tab flex h-8 min-w-0 flex-1 items-center gap-1 rounded-t-xl border border-b-0 px-2 pb-1 text-xs leading-none text-muted-foreground"
+        data-composer-tasks-badge="true"
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={label}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-muted-foreground hover:text-foreground"
+          onClick={onToggle}
+          onPointerDown={(event) => event.preventDefault()}
+        >
+          <ListTodoIcon aria-hidden className="size-3.5 shrink-0" />
+          <span className="shrink-0">Tasks</span>
+          <span
+            className="min-w-0 flex-1 truncate text-left font-medium text-foreground/80"
+            data-composer-task-current="true"
+          >
+            {progress.step}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 font-medium tabular-nums",
+              allDone ? "text-success" : "text-muted-foreground",
+            )}
+          >
+            {progress.completedSteps}/{progress.totalSteps}
+          </span>
+        </button>
+        <Button
+          size="icon-micro"
+          variant="ghost-muted"
+          aria-label="Dismiss tasks for this turn"
+          className="shrink-0"
+          onClick={onDismiss}
+          onPointerDown={(event) => event.preventDefault()}
+        >
+          <XIcon aria-hidden className="size-3" />
+        </Button>
+      </div>
     );
   }
 

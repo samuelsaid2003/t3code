@@ -12,6 +12,7 @@ import { useCallback } from "react";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
 import { useProjectPathSearch } from "~/state/queries";
+import { vcsEnvironment } from "~/state/vcs";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
 const EMPTY_PROJECT_FILE_PATH = "";
@@ -29,19 +30,26 @@ interface ProjectQueryState<A> {
   readonly refresh: () => void;
 }
 
-export function getProjectEntriesQueryAtom(environmentId: EnvironmentId, cwd: string) {
-  return projectEnvironment.listEntries({ environmentId, input: { cwd } });
+export function getProjectEntriesQueryAtom(
+  environmentId: EnvironmentId,
+  cwd: string,
+  refName: string | null = null,
+) {
+  return refName === null
+    ? projectEnvironment.listEntries({ environmentId, input: { cwd } })
+    : vcsEnvironment.listTree({ environmentId, input: { cwd, refName } });
 }
 
 export function getProjectFileQueryAtom(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string | null,
+  refName: string | null = null,
 ) {
-  return projectEnvironment.readFile({
-    environmentId,
-    input: { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH },
-  });
+  const input = { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH };
+  return refName === null
+    ? projectEnvironment.readFile({ environmentId, input })
+    : vcsEnvironment.readFileAtRef({ environmentId, input: { ...input, refName } });
 }
 
 export function setProjectFileQueryData(
@@ -124,8 +132,9 @@ function errorMessage<A>(result: AsyncResult.AsyncResult<A, unknown>): string | 
 export function useProjectEntriesQuery(
   environmentId: EnvironmentId,
   cwd: string,
+  refName: string | null = null,
 ): ProjectQueryState<ProjectListEntriesResult> {
-  const atom = getProjectEntriesQueryAtom(environmentId, cwd);
+  const atom = getProjectEntriesQueryAtom(environmentId, cwd, refName);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
@@ -177,9 +186,10 @@ export function useProjectFileQuery(
   cwd: string,
   relativePath: string | null,
   enabled = true,
+  refName: string | null = null,
 ): ProjectQueryState<ProjectReadFileResult> {
   const atom = enabled
-    ? getProjectFileQueryAtom(environmentId, cwd, relativePath)
+    ? getProjectFileQueryAtom(environmentId, cwd, relativePath, refName)
     : EMPTY_PROJECT_FILE_QUERY_ATOM;
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
@@ -188,7 +198,7 @@ export function useProjectFileQuery(
   const optimisticResult = useAtomValue(
     optimisticFileAtom(environmentId, cwd, relativePath ?? EMPTY_PROJECT_FILE_PATH),
   );
-  const optimisticFile = relativePath === null ? null : optimisticResult;
+  const optimisticFile = relativePath === null || refName !== null ? null : optimisticResult;
 
   return {
     data: optimisticFile?.data ?? data,

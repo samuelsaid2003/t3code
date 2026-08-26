@@ -784,25 +784,67 @@ describe("searchSidebarThreadsByTitle", () => {
 });
 
 describe("sortThreadsForSidebar", () => {
-  const sortable = (input: { id: string; createdAt: string }) => ({
+  const sortable = (input: {
+    id: string;
+    createdAt: string;
+    latestUserMessageAt?: string | null;
+  }) => ({
     id: input.id,
     createdAt: input.createdAt,
+    latestUserMessageAt: input.latestUserMessageAt ?? null,
   });
 
-  it("orders by creation time, newest first, ignoring activity", () => {
+  it("orders by the latest user prompt, newest first", () => {
     const sorted = sortThreadsForSidebar([
-      sortable({ id: "oldest", createdAt: "2026-03-09T08:00:00.000Z" }),
-      sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
-      sortable({ id: "middle", createdAt: "2026-03-09T10:00:00.000Z" }),
+      sortable({
+        id: "created-newest",
+        createdAt: "2026-03-09T12:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T12:01:00.000Z",
+      }),
+      sortable({
+        id: "prompted-latest",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T13:00:00.000Z",
+      }),
+      sortable({
+        id: "prompted-middle",
+        createdAt: "2026-03-09T10:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T12:30:00.000Z",
+      }),
     ]);
 
-    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "oldest"]);
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      "prompted-latest",
+      "prompted-middle",
+      "created-newest",
+    ]);
   });
 
-  it("breaks creation-time ties by id so the order is stable", () => {
+  it("falls back to creation time for threads without a valid user prompt timestamp", () => {
     const sorted = sortThreadsForSidebar([
-      sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
-      sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
+      sortable({
+        id: "invalid-old",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "not-a-date",
+      }),
+      sortable({ id: "untouched-new", createdAt: "2026-03-09T12:00:00.000Z" }),
+    ]);
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["untouched-new", "invalid-old"]);
+  });
+
+  it("breaks prompt-time ties by id so the order is stable", () => {
+    const sorted = sortThreadsForSidebar([
+      sortable({
+        id: "b",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+      }),
+      sortable({
+        id: "a",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+      }),
     ]);
 
     expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);

@@ -73,6 +73,12 @@ import {
   type ComposerTaskStep,
   type ComposerTasksProgress,
 } from "./ComposerTasksBadge";
+import { ComposerThreadNoteBadge, ComposerThreadNoteDrawer } from "./ComposerThreadNote";
+import {
+  desktopThreadNoteStorageKey,
+  useDesktopThreadNoteEditor,
+} from "../../desktopThreadNotesStore";
+import { isElectron } from "../../env";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
 import {
   releaseAttachmentUpload,
@@ -1034,6 +1040,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
   const [isTasksDrawerOpen, setIsTasksDrawerOpen] = useState(false);
+  const [isThreadNoteDrawerOpen, setIsThreadNoteDrawerOpen] = useState(false);
   const [dismissedTasksTurnId, setDismissedTasksTurnId] = useState<TurnId | null>(null);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
@@ -1042,6 +1049,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isMobileViewport = useMediaQuery("max-sm");
   const isComposerCollapsedMobile =
     isMobileViewport && !forceExpandedOnMobile && !isComposerFocused;
+  const threadNote = useDesktopThreadNoteEditor(routeThreadRef);
+  const threadNoteKey = desktopThreadNoteStorageKey(routeThreadRef);
 
   // ------------------------------------------------------------------
   // Refs
@@ -2386,8 +2395,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     toggleStashMenu();
   }, [expandMobileComposer, isComposerCollapsedMobile, toggleStashMenu]);
   const toggleTasksDrawer = useCallback(() => {
-    setIsTasksDrawerOpen((open) => !open);
-  }, []);
+    if (!isTasksDrawerOpen) setIsThreadNoteDrawerOpen(false);
+    setIsTasksDrawerOpen(!isTasksDrawerOpen);
+  }, [isTasksDrawerOpen]);
+  const toggleThreadNoteDrawer = useCallback(() => {
+    if (isThreadNoteDrawerOpen) {
+      const saved =
+        threadNote.status === "conflict"
+          ? threadNote.keepMine()
+          : threadNote.status === "saved"
+            ? true
+            : threadNote.save();
+      if (!saved) return;
+    } else {
+      setIsTasksDrawerOpen(false);
+    }
+    setIsThreadNoteDrawerOpen(!isThreadNoteDrawerOpen);
+  }, [isThreadNoteDrawerOpen, threadNote]);
+  const clearThreadNote = useCallback(() => {
+    if (threadNote.clear()) setIsThreadNoteDrawerOpen(false);
+  }, [threadNote]);
   const activeTasksTurnId = activeThread?.latestTurn?.turnId ?? null;
   const tasksDismissedForActiveTurn =
     activeTasksTurnId !== null && dismissedTasksTurnId === activeTasksTurnId;
@@ -2407,6 +2434,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (props.externalDrawerAttached ||
       showComposerTopDrawer ||
       isTasksDrawerOpen ||
+      isThreadNoteDrawerOpen ||
       isComposerCollapsedMobile);
   const inlineStashBadge = showInlineStashBadge ? (
     <ComposerStashBadge
@@ -2423,7 +2451,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     visibleTaskSteps !== null &&
     !isTasksDrawerOpen &&
     !hasBlockingComposerTopDrawer &&
-    (props.externalDrawerAttached || showComposerTopDrawer || isComposerCollapsedMobile);
+    (props.externalDrawerAttached ||
+      showComposerTopDrawer ||
+      isThreadNoteDrawerOpen ||
+      isComposerCollapsedMobile);
   const inlineTasksBadge = showInlineTasksBadge ? (
     <ComposerTasksBadge
       expanded={false}
@@ -2434,14 +2465,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       steps={visibleTaskSteps}
     />
   ) : null;
-  const showShoulderTabs =
+  const inlineThreadNoteBadge =
+    isElectron &&
+    (props.externalDrawerAttached ||
+      showComposerTopDrawer ||
+      isTasksDrawerOpen ||
+      isComposerCollapsedMobile) ? (
+      <ComposerThreadNoteBadge
+        expanded={isThreadNoteDrawerOpen}
+        placement="inline"
+        preview={threadNote.text.trim()}
+        status={threadNote.status}
+        onToggle={toggleThreadNoteDrawer}
+      />
+    ) : null;
+  const canUseShoulderTabs =
     !props.externalDrawerAttached &&
     !showComposerTopDrawer &&
     !isTasksDrawerOpen &&
     !isComposerCollapsedMobile;
+  const showShoulderTabs = canUseShoulderTabs && !isThreadNoteDrawerOpen;
   const hasShoulderTab =
-    showShoulderTabs &&
-    (stashQueue.length > 0 ||
+    canUseShoulderTabs &&
+    (isElectron ||
+      stashQueue.length > 0 ||
       (visibleTasksProgress !== null &&
         visibleTaskSteps !== null &&
         visibleTasksProgress.totalSteps > 0));
@@ -2454,12 +2501,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     if (hasBlockingComposerTopDrawer) {
       setIsTasksDrawerOpen(false);
+      setIsThreadNoteDrawerOpen(false);
     }
   }, [hasBlockingComposerTopDrawer]);
 
   useEffect(() => {
     setIsTasksDrawerOpen(false);
-  }, [activeThreadId]);
+    setIsThreadNoteDrawerOpen(false);
+  }, [activeThreadId, threadNoteKey]);
 
   // Close the stash menu whenever the trigger-driven command menu opens so
   // the two popovers never stack in the same layer, and when the user
@@ -2896,10 +2945,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onDragOverCapture={composerMentionDragHandlers.onDragOver}
       onDragLeaveCapture={onComposerMentionDragLeaveCapture}
       onDropCapture={composerMentionDragHandlers.onDrop}
-      className={cn("mx-auto w-full min-w-0 max-w-3xl", hasShoulderTab && "pt-7")}
+      className={cn("relative mx-auto w-full min-w-0 max-w-3xl", hasShoulderTab && "pt-7")}
       data-chat-composer-form="true"
     >
-      {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
+      {showComposerTopDrawer &&
+      ((!isTasksDrawerOpen && !isThreadNoteDrawerOpen) || hasBlockingComposerTopDrawer) ? (
         <div
           className="chat-composer-top-drawer"
           data-chat-composer-top-drawer="true"
@@ -2981,6 +3031,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   >
                     {activePendingProgress?.customAnswer || "Write custom answer"}
                   </button>
+                  {inlineThreadNoteBadge}
                   {inlineTasksBadge}
                   {inlineStashBadge}
                   {activePendingProgress?.activeQuestion?.multiSelect ? (
@@ -3024,7 +3075,55 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         />
       ) : null}
       <div className="relative">
-        {showShoulderTabs && visibleTasksProgress && visibleTaskSteps ? (
+        {isElectron ? (
+          <ComposerThreadNoteDrawer
+            expanded={isThreadNoteDrawerOpen && !hasBlockingComposerTopDrawer}
+            text={threadNote.text}
+            status={threadNote.status}
+            onChange={threadNote.changeText}
+            onClear={clearThreadNote}
+            onCollapse={toggleThreadNoteDrawer}
+            onKeepMine={threadNote.keepMine}
+            onRetry={() => threadNote.save()}
+            onUseLatest={threadNote.useLatest}
+          />
+        ) : null}
+        {showShoulderTabs && isElectron ? (
+          <div
+            className="absolute inset-x-4 -top-7 z-0 flex h-8 min-w-0 items-stretch gap-1"
+            data-chat-composer-shoulder-rail="true"
+          >
+            {isElectron ? (
+              <ComposerThreadNoteBadge
+                expanded={isThreadNoteDrawerOpen}
+                placement="rail"
+                preview={threadNote.text.trim()}
+                status={threadNote.status}
+                onToggle={toggleThreadNoteDrawer}
+              />
+            ) : null}
+            {visibleTasksProgress && visibleTaskSteps ? (
+              <ComposerTasksBadge
+                expanded={false}
+                placement="rail"
+                onDismiss={dismissTasks}
+                onToggle={toggleTasksDrawer}
+                progress={visibleTasksProgress}
+                steps={visibleTaskSteps}
+              />
+            ) : null}
+            <span className="min-w-0 flex-1" aria-hidden />
+            <ComposerStashBadge
+              count={stashQueue.length}
+              menuOpen={isStashMenuOpen}
+              placement="rail"
+              pulseKey={stashPulse.key}
+              pulsing={stashPulse.active}
+              onToggleMenu={toggleStashMenu}
+            />
+          </div>
+        ) : null}
+        {showShoulderTabs && !isElectron && visibleTasksProgress && visibleTaskSteps ? (
           <ComposerTasksBadge
             expanded={false}
             hasTrailingShoulder={stashQueue.length > 0}
@@ -3034,7 +3133,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             steps={visibleTaskSteps}
           />
         ) : null}
-        {showShoulderTabs ? (
+        {showShoulderTabs && !isElectron ? (
           <ComposerStashBadge
             count={stashQueue.length}
             menuOpen={isStashMenuOpen}
@@ -3081,6 +3180,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     : prompt.trim() ||
                       (noProviderAvailable ? "Enable a provider in Settings" : "Ask anything...")}
                 </button>
+                {inlineThreadNoteBadge}
                 {inlineTasksBadge}
                 {inlineStashBadge}
                 <button
@@ -3355,6 +3455,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     data-chat-composer-mobile-pending-actions="true"
                     className="absolute bottom-0 right-0 flex items-center justify-end gap-1"
                   >
+                    {inlineThreadNoteBadge}
                     {inlineTasksBadge}
                     {inlineStashBadge}
                     <ComposerPrimaryActions
@@ -3480,6 +3581,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {showMobilePendingAnswerActions ? null : inlineThreadNoteBadge}
                   {showMobilePendingAnswerActions ? null : inlineTasksBadge}
                   {showMobilePendingAnswerActions ? null : inlineStashBadge}
                   <ComposerFooterPrimaryActions

@@ -65,4 +65,21 @@ describe("ComposerStashBadge", () => {
     expect(markup).not.toContain("rounded-t-xl");
     expect(markup).not.toContain(" pointer-events-none ");
   });
+
+  it("fits inside the desktop composer shoulder rail", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerStashBadge
+        count={3}
+        menuOpen={false}
+        placement="rail"
+        pulseKey={0}
+        pulsing={false}
+        onToggleMenu={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("chat-composer-shoulder-tab");
+    expect(markup).toContain("Stash");
+    expect(markup).not.toContain("absolute");
+  });
 });

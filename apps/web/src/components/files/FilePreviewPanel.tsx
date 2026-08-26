@@ -12,7 +12,15 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
+import {
+  ChevronRight,
+  Code2,
+  Eye,
+  FolderTree,
+  GitBranch,
+  Globe2,
+  LoaderCircle,
+} from "lucide-react";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -700,6 +708,58 @@ function EditableFileSurface({
   );
 }
 
+function ReadOnlyFileSurface(props: {
+  readonly cacheScope: string;
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly contents: string;
+  readonly resolvedTheme: "light" | "dark";
+  readonly wordWrap: boolean;
+  readonly onPostRender: FilePostRender;
+}) {
+  return (
+    <Virtualizer
+      key={`${props.cacheScope}:${props.relativePath}:${props.resolvedTheme}`}
+      className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
+      config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
+    >
+      <File
+        file={{
+          name: props.relativePath,
+          contents: props.contents,
+          cacheKey: projectFileCacheKey(props.cwd, props.relativePath, props.contents),
+        }}
+        options={{
+          disableFileHeader: true,
+          overflow: props.wordWrap ? "wrap" : "scroll",
+          theme: resolveDiffThemeName(props.resolvedTheme),
+          themeType: props.resolvedTheme,
+          unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+          onPostRender: props.onPostRender,
+        }}
+        className="min-h-full"
+      />
+    </Virtualizer>
+  );
+}
+
+function ReadOnlyRenderedMarkdownSurface(props: {
+  readonly cwd: string;
+  readonly contents: string;
+  readonly threadRef: ScopedThreadRef;
+}) {
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      <ChatMarkdown
+        text={props.contents}
+        cwd={props.cwd}
+        threadRef={props.threadRef}
+        className="mx-auto max-w-4xl px-6 py-5"
+      />
+    </ScrollArea>
+  );
+}
+
 function RenderedMarkdownSurface({
   environmentId,
   cwd,
@@ -780,8 +840,17 @@ export default function FilePreviewPanel({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
+  const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  const isHistoricalRef = selectedRef !== null;
   const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
-  const file = useProjectFileQuery(environmentId, cwd, relativePath, !isImage);
+  const useWorkspaceImagePreview = isImage && !isHistoricalRef;
+  const file = useProjectFileQuery(
+    environmentId,
+    cwd,
+    relativePath,
+    !useWorkspaceImagePreview,
+    selectedRef,
+  );
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
@@ -805,7 +874,10 @@ export default function FilePreviewPanel({
     (revealLine === null ||
       (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId));
   const canOpenInBrowser =
-    relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
+    !isHistoricalRef &&
+    relativePath !== null &&
+    isPreviewSupportedInRuntime() &&
+    isBrowserPreviewFile(relativePath);
   const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
   const breadcrumbs = useMemo(
     () => (relativePath ? fileBreadcrumbs(projectName, relativePath) : []),
@@ -903,7 +975,21 @@ export default function FilePreviewPanel({
               ))}
             </div>
           </ScrollArea>
-          {absolutePath &&
+          {selectedRef ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="flex max-w-40 shrink-0 items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground" />
+                }
+              >
+                <GitBranch className="size-3" />
+                <span className="truncate">{selectedRef}</span>
+              </TooltipTrigger>
+              <TooltipPopup>{selectedRef} · Read-only branch preview</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {!isHistoricalRef &&
+          absolutePath &&
           (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
             <OpenInPicker
               environmentId={environmentId}
@@ -994,7 +1080,7 @@ export default function FilePreviewPanel({
             relativePath ? "flex" : "hidden",
           )}
         >
-          {relativePath && isImage && absolutePath ? (
+          {relativePath && useWorkspaceImagePreview && absolutePath ? (
             <WorkspaceImagePreview
               key={absolutePath}
               environmentId={environmentId}
@@ -1012,40 +1098,32 @@ export default function FilePreviewPanel({
             </div>
           ) : relativePath && file.data ? (
             isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                environmentId={environmentId}
+              isHistoricalRef ? (
+                <ReadOnlyRenderedMarkdownSurface
+                  cwd={cwd}
+                  threadRef={threadRef}
+                  contents={file.data.contents}
+                />
+              ) : (
+                <RenderedMarkdownSurface
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  threadRef={threadRef}
+                  contents={file.data.contents}
+                  onPendingChange={onPendingChange}
+                />
+              )
+            ) : isHistoricalRef || file.data.truncated ? (
+              <ReadOnlyFileSurface
+                cacheScope={selectedRef ?? "working-tree-truncated"}
                 cwd={cwd}
                 relativePath={relativePath}
-                threadRef={threadRef}
                 contents={file.data.contents}
-                onPendingChange={onPendingChange}
+                resolvedTheme={resolvedTheme}
+                wordWrap={wordWrap}
+                onPostRender={onFilePostRender}
               />
-            ) : file.data.truncated ? (
-              <Virtualizer
-                key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}
-                className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
-                config={{
-                  overscrollSize: 600,
-                  intersectionObserverMargin: 1200,
-                }}
-              >
-                <File
-                  file={{
-                    name: relativePath,
-                    contents: file.data.contents,
-                    cacheKey: projectFileCacheKey(cwd, relativePath, file.data.contents),
-                  }}
-                  options={{
-                    disableFileHeader: true,
-                    overflow: wordWrap ? "wrap" : "scroll",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                    themeType: resolvedTheme,
-                    unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
-                    onPostRender: onFilePostRender,
-                  }}
-                  className="min-h-full"
-                />
-              </Virtualizer>
             ) : (
               <EditableFileSurface
                 key={`${relativePath}:${resolvedTheme}`}
@@ -1079,8 +1157,12 @@ export default function FilePreviewPanel({
               projectName={projectName}
               selectedPath={relativePath}
               selectedPathRevealId={revealRequestId}
+              selectedRef={selectedRef}
+              onSelectedRefChange={setSelectedRef}
               onOpenFile={onOpenFile}
-              {...(relativePath && !isImage ? { onRefreshSelectedFile: file.refresh } : {})}
+              {...(relativePath && !useWorkspaceImagePreview
+                ? { onRefreshSelectedFile: file.refresh }
+                : {})}
             />
           </aside>
         ) : null}

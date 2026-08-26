@@ -5,11 +5,19 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { RotateCw } from "lucide-react";
+import { GitBranch, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
@@ -18,6 +26,8 @@ import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
+import { useEnvironmentQuery } from "~/state/query";
+import { vcsEnvironment } from "~/state/vcs";
 
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
@@ -30,6 +40,8 @@ interface FileBrowserPanelProps {
   selectedPath: string | null;
   /** Bumped when the same path should be revealed again (e.g. re-opened from search). */
   selectedPathRevealId: number;
+  selectedRef: string | null;
+  onSelectedRefChange: (refName: string | null) => void;
   onOpenFile: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
 }
@@ -105,12 +117,18 @@ export default function FileBrowserPanel({
   projectName,
   selectedPath,
   selectedPathRevealId,
+  selectedRef,
+  onSelectedRefChange,
   onOpenFile,
   onRefreshSelectedFile,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
-  const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
+  const entriesQuery = useProjectEntriesQuery(environmentId, cwd, selectedRef);
+  const refsQuery = useEnvironmentQuery(
+    vcsEnvironment.listRefs({ environmentId, input: { cwd, limit: 200 } }),
+  );
+  const refs = refsQuery.data?.refs ?? [];
   const entries = entriesQuery.data?.entries ?? [];
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
@@ -139,6 +157,10 @@ export default function FileBrowserPanel({
     item: TreeContextMenuItem,
     context: TreeContextMenuOpenContext,
   ) => {
+    if (selectedRef !== null) {
+      context.close();
+      return;
+    }
     const api = readLocalApi();
     if (!api) {
       context.close();
@@ -258,6 +280,7 @@ export default function FileBrowserPanel({
   };
   const handleRefresh = () => {
     entriesQuery.refresh();
+    refsQuery.refresh();
     onRefreshSelectedFile?.();
   };
 
@@ -340,7 +363,13 @@ export default function FileBrowserPanel({
     if (panel === null) {
       return;
     }
-    const handleDragStart = (event: DragEvent) => dragMention.handleDragStart(event);
+    const handleDragStart = (event: DragEvent) => {
+      if (selectedRef !== null) {
+        event.preventDefault();
+        return;
+      }
+      dragMention.handleDragStart(event);
+    };
     const handleDragEnd = () => dragMention.handleDragEnd();
     panel.addEventListener("dragstart", handleDragStart, true);
     panel.addEventListener("dragend", handleDragEnd);
@@ -348,7 +377,9 @@ export default function FileBrowserPanel({
       panel.removeEventListener("dragstart", handleDragStart, true);
       panel.removeEventListener("dragend", handleDragEnd);
     };
-  }, [dragMention]);
+  }, [dragMention, selectedRef]);
+
+  const revisionValue = selectedRef === null ? "working-tree" : `ref:${selectedRef}`;
 
   return (
     <div
@@ -360,6 +391,44 @@ export default function FileBrowserPanel({
         className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
         data-surface-subheader
       >
+        <Select
+          value={revisionValue}
+          onValueChange={(value) => {
+            if (!value) return;
+            onSelectedRefChange(value === "working-tree" ? null : value.slice("ref:".length));
+          }}
+        >
+          <SelectTrigger
+            size="compact"
+            variant="ghost"
+            className="max-w-40 min-w-0 shrink-0"
+            aria-label="Files revision"
+          >
+            <GitBranch className="size-3.5 shrink-0" />
+            <SelectValue>{selectedRef ?? "Working tree"}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup matchTriggerWidth={false} className="w-64 max-w-[80vw]">
+            <SelectItem value="working-tree">
+              <span className="flex min-w-0 items-center gap-2">
+                <GitBranch className="size-3.5" />
+                <span className="truncate">Working tree</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">Editable</span>
+              </span>
+            </SelectItem>
+            {refs.length > 0 ? <SelectSeparator /> : null}
+            {refs.map((ref) => (
+              <SelectItem key={ref.name} value={`ref:${ref.name}`}>
+                <span className="flex min-w-0 items-center gap-2">
+                  <GitBranch className="size-3.5" />
+                  <span className="truncate">{ref.name}</span>
+                  {ref.current ? (
+                    <span className="ml-auto text-[10px] text-muted-foreground">Current</span>
+                  ) : null}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
         <RefreshFilesButton isPending={entriesQuery.isPending} onRefresh={handleRefresh} />
         <FileSearchField
           name="project-files-search"
@@ -372,15 +441,22 @@ export default function FileBrowserPanel({
       {entriesQuery.error && entriesQuery.data === null ? (
         <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>
       ) : (
-        <FileTree
-          model={model}
-          aria-label={`${projectName} files`}
-          className="min-h-0 flex-1 overflow-hidden"
-          style={{
-            colorScheme: resolvedTheme,
-            ["--trees-fg-override" as string]: "var(--contrast-foreground)",
-          }}
-        />
+        <>
+          {entriesQuery.data?.truncated ? (
+            <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
+              File list truncated for this revision.
+            </div>
+          ) : null}
+          <FileTree
+            model={model}
+            aria-label={`${projectName} files${selectedRef ? ` at ${selectedRef}` : ""}`}
+            className="min-h-0 flex-1 overflow-hidden"
+            style={{
+              colorScheme: resolvedTheme,
+              ["--trees-fg-override" as string]: "var(--contrast-foreground)",
+            }}
+          />
+        </>
       )}
     </div>
   );

@@ -167,6 +167,40 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("reads files from another branch without changing the working checkout", () =>
+  Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const cwd = yield* makeTmpDir();
+    const { initialBranch } = yield* initRepoWithCommit(cwd);
+    yield* git(cwd, ["checkout", "-b", "feature/branch-browser"]);
+    yield* writeTextFile(cwd, "README.md", "# branch version\n");
+    yield* writeTextFile(cwd, "src/branch-only.ts", "export const branchOnly = true;\n");
+    yield* git(cwd, ["add", "."]);
+    yield* git(cwd, ["commit", "-m", "add branch-only files"]);
+    yield* git(cwd, ["checkout", initialBranch]);
+
+    const before = yield* git(cwd, ["branch", "--show-current"]);
+    const tree = yield* driver.listTree({ cwd, refName: "feature/branch-browser" });
+    const branchReadme = yield* driver.readFileAtRef({
+      cwd,
+      refName: "feature/branch-browser",
+      relativePath: "README.md",
+    });
+    const workingBranchReadme = yield* driver.readFileAtRef({
+      cwd,
+      refName: initialBranch,
+      relativePath: "README.md",
+    });
+
+    assert.equal(tree.truncated, false);
+    assert.deepInclude(tree.entries, { path: "src", kind: "directory" });
+    assert.deepInclude(tree.entries, { path: "src/branch-only.ts", kind: "file" });
+    assert.equal(branchReadme.contents, "# branch version\n");
+    assert.equal(workingBranchReadme.contents, "# test\n");
+    assert.equal(yield* git(cwd, ["branch", "--show-current"]), before);
+  }).pipe(Effect.provide(TestLayer)),
+);
+
 it.effect("invalidates origin remote cache when a driver mutation adds origin", () =>
   Effect.gen(function* () {
     const driver = yield* GitVcsDriver.GitVcsDriver;

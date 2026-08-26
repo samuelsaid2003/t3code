@@ -2110,6 +2110,14 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
             "rpc.aggregate": "vcs",
           }),
+        [WS_METHODS.vcsListTree]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListTree, gitWorkflow.listTree(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsReadFileAtRef]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsReadFileAtRef, gitWorkflow.readFileAtRef(input), {
+            "rpc.aggregate": "vcs",
+          }),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,

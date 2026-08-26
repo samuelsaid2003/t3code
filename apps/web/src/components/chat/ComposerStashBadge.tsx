@@ -16,7 +16,7 @@ import { Button } from "../ui/button";
 export const ComposerStashBadge = memo(function ComposerStashBadge(props: {
   count: number;
   menuOpen: boolean;
-  placement?: "inline" | "tab";
+  placement?: "inline" | "rail" | "tab";
   pulseKey: number;
   pulsing: boolean;
   onToggleMenu: () => void;
@@ -56,6 +56,31 @@ export const ComposerStashBadge = memo(function ComposerStashBadge(props: {
         <BookmarkIcon className="size-3 shrink-0" aria-hidden="true" />
         {count}
       </Button>
+    );
+  }
+
+  if (props.placement === "rail") {
+    return (
+      <button
+        type="button"
+        data-prompt-stash-badge="true"
+        aria-label={`Stashed prompts: ${props.count}. Open stash.`}
+        aria-expanded={props.menuOpen}
+        className={cn(
+          "chat-composer-shoulder-tab flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-xl border border-b-0 px-2.5 pb-1 text-xs leading-none",
+          "transition-[color,border-color] duration-200",
+          props.menuOpen && "pointer-events-none",
+          props.menuOpen || props.pulsing
+            ? "text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={props.onToggleMenu}
+      >
+        <BookmarkIcon className="size-3 shrink-0" aria-hidden="true" />
+        <span>Stash</span>
+        {count}
+      </button>
     );
   }
 

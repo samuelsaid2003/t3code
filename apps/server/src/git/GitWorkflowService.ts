@@ -13,6 +13,10 @@ import {
   type VcsCreateWorktreeResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
+  type VcsListTreeInput,
+  type VcsListTreeResult,
+  type VcsReadFileAtRefInput,
+  type VcsReadFileAtRefResult,
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
@@ -62,6 +66,12 @@ export class GitWorkflowService extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    readonly listTree: (
+      input: VcsListTreeInput,
+    ) => Effect.Effect<VcsListTreeResult, GitCommandError>;
+    readonly readFileAtRef: (
+      input: VcsReadFileAtRefInput,
+    ) => Effect.Effect<VcsReadFileAtRefResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -301,6 +311,14 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((isGitRepository) =>
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
         ),
+      ),
+    listTree: (input) =>
+      ensureGitCommand("GitWorkflowService.listTree", input.cwd).pipe(
+        Effect.andThen(git.listTree(input)),
+      ),
+    readFileAtRef: (input) =>
+      ensureGitCommand("GitWorkflowService.readFileAtRef", input.cwd).pipe(
+        Effect.andThen(git.readFileAtRef(input)),
       ),
     createWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(

@@ -7,6 +7,10 @@ one environment.
 Pinned threads still move to **Settled** when they become inactive. They also move when their pull
 request merges if **Auto-settle merged threads** is enabled.
 
+Active threads are ordered by the most recent prompt you sent. A thread with no prompts yet falls
+back to when it was created. Agent completions and metadata changes do not move a thread by
+themselves.
+
 On web and desktop, drag a pinned thread to change its position. On mobile, open the thread's menu
 and choose **Move up** or **Move down**. The order is stored by the server and appears on your
 other connected devices.
@@ -38,6 +42,10 @@ individual pane. Its width can be resized while the remaining space is redistrib
 thread panes. Once open, the panel stays open as focus moves between panes; a thread with no panel
 tabs shows the surface launcher. Each thread keeps its own Files, Diff, Terminal, Browser, Pull
 request, and Agents tabs.
+
+In **Files**, use the branch menu above the file tree to inspect committed files from another
+branch. **Working tree** is the normal editable view. Branch views are read-only and do not switch
+the checked-out branch, change the worktree, or alter the thread's agent session.
 
 Closing a pane closes only that view. It does not stop, settle, archive, or delete the thread. When
 only one pane remains, the group dissolves. Pane arrangement and the saved group are session-only

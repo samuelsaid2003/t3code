@@ -1,10 +1,13 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProjectEntry, ProjectReadFileResult } from "./project.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
+const VCS_TREE_REF_MAX_LENGTH = 512;
+const VCS_TREE_PATH_MAX_LENGTH = 512;
 
 // Domain Types
 
@@ -133,6 +136,28 @@ export const VcsListRefsInput = Schema.Struct({
   ),
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
+
+export const VcsListTreeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  refName: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(VCS_TREE_REF_MAX_LENGTH)),
+});
+export type VcsListTreeInput = typeof VcsListTreeInput.Type;
+
+export const VcsListTreeResult = Schema.Struct({
+  entries: Schema.Array(ProjectEntry),
+  truncated: Schema.Boolean,
+});
+export type VcsListTreeResult = typeof VcsListTreeResult.Type;
+
+export const VcsReadFileAtRefInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  refName: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(VCS_TREE_REF_MAX_LENGTH)),
+  relativePath: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(VCS_TREE_PATH_MAX_LENGTH)),
+});
+export type VcsReadFileAtRefInput = typeof VcsReadFileAtRefInput.Type;
+
+export const VcsReadFileAtRefResult = ProjectReadFileResult;
+export type VcsReadFileAtRefResult = typeof VcsReadFileAtRefResult.Type;
 
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,

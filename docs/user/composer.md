@@ -22,3 +22,15 @@ On desktop, press `Cmd+Enter` on macOS or `Ctrl+Enter` on Windows and Linux from
 start it in the background. T3 Code opens another new thread and shows an **Open** action for the
 thread that started. The new thread keeps the selected workspace mode and base branch. If **New
 worktree** is selected, each background thread creates its own worktree.
+
+## Desktop thread notes
+
+The desktop composer has a **Note** tab for keeping one short note with each thread. Notes save
+automatically, remain available after restarting or updating the desktop app, and stay aligned with
+their thread in split views. Windows from the same desktop installation reflect note changes from
+one another. Press `Enter` to save and close a note, or `Shift+Enter` to add a new line. The trash
+button clears the note and closes it.
+
+Thread notes are local desktop data. They are not messages, are not sent to the coding agent, and do
+not appear in web or mobile clients. They also do not follow a thread to another computer or a newly
+imported T3 environment.

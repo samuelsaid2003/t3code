@@ -6,6 +6,10 @@ import type {
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
+  VcsListTreeInput,
+  VcsListTreeResult,
+  VcsReadFileAtRefInput,
+  VcsReadFileAtRefResult,
   VcsPullInput,
   VcsPullResult,
   VcsRemoveWorktreeInput,
@@ -1329,6 +1333,8 @@ export interface EnvironmentApi {
   };
   vcs: {
     listRefs: (input: VcsListRefsInput) => Promise<VcsListRefsResult>;
+    listTree: (input: VcsListTreeInput) => Promise<VcsListTreeResult>;
+    readFileAtRef: (input: VcsReadFileAtRefInput) => Promise<VcsReadFileAtRefResult>;
     createWorktree: (input: VcsCreateWorktreeInput) => Promise<VcsCreateWorktreeResult>;
     removeWorktree: (input: VcsRemoveWorktreeInput) => Promise<void>;
     createRef: (input: VcsCreateRefInput) => Promise<VcsCreateRefResult>;

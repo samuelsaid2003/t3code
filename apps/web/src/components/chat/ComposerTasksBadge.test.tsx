@@ -85,6 +85,23 @@ describe("ComposerTasksBadge", () => {
     expect(markup).not.toContain("rounded-t-xl");
   });
 
+  it("fits inside the desktop composer shoulder rail", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerTasksBadge
+        expanded={false}
+        onDismiss={() => undefined}
+        onToggle={() => undefined}
+        placement="rail"
+        progress={progress}
+        steps={steps}
+      />,
+    );
+
+    expect(markup).toContain("chat-composer-shoulder-tab");
+    expect(markup).toContain("min-w-0 flex-1");
+    expect(markup).not.toContain("chat-composer-tasks-tab absolute");
+  });
+
   it("expands into a read-only attached task list", () => {
     const markup = renderToStaticMarkup(
       <ComposerTasksDrawer

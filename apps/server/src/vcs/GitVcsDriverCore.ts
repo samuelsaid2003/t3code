@@ -21,9 +21,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   GitCommandError,
+  type ProjectEntry,
   type ReviewDiffFileContentsInput,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
+  type VcsListTreeInput,
   type VcsRef,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3tools/shared/git";
@@ -53,6 +55,9 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
+const VCS_TREE_MAX_ENTRIES = 25_000;
+const VCS_TREE_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const VCS_TREE_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
 
@@ -288,6 +293,52 @@ export function splitNullSeparatedGitStdoutPaths(
   result: Pick<GitVcsDriver.ExecuteGitResult, "stdout" | "stdoutTruncated">,
 ): string[] {
   return splitNullSeparatedPaths(result.stdout, result.stdoutTruncated);
+}
+
+function projectEntriesFromGitTreePaths(paths: ReadonlyArray<string>): {
+  readonly entries: ReadonlyArray<ProjectEntry>;
+  readonly truncated: boolean;
+} {
+  const entries = new Map<string, ProjectEntry["kind"]>();
+  let truncated = false;
+
+  for (const filePath of paths) {
+    if (filePath.length === 0 || filePath.trim() !== filePath || filePath.includes("\0")) continue;
+    const segments = filePath.split("/");
+    if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+      continue;
+    }
+    for (let index = 1; index < segments.length; index += 1) {
+      entries.set(segments.slice(0, index).join("/"), "directory");
+      if (entries.size >= VCS_TREE_MAX_ENTRIES) break;
+    }
+    if (entries.size < VCS_TREE_MAX_ENTRIES) {
+      entries.set(filePath, "file");
+    }
+    if (entries.size >= VCS_TREE_MAX_ENTRIES) {
+      truncated = true;
+      break;
+    }
+  }
+
+  return {
+    entries: [...entries].map(([path, kind]) => ({ path, kind })),
+    truncated,
+  };
+}
+
+function isSafeGitTreePath(relativePath: string): boolean {
+  if (
+    relativePath.length === 0 ||
+    relativePath.trim() !== relativePath ||
+    relativePath.startsWith("/") ||
+    relativePath.includes("\0")
+  ) {
+    return false;
+  }
+  return relativePath
+    .split("/")
+    .every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
 function sanitizeRemoteName(value: string): string {
@@ -2708,6 +2759,110 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     yield* Cache.invalidate(repositoryPathsCache, repositoryPathsCacheKey);
   });
 
+  const resolveTreeCommit = Effect.fn("GitVcsDriver.resolveTreeCommit")(function* (
+    input: VcsListTreeInput,
+  ) {
+    const result = yield* executeGit(
+      "GitVcsDriver.resolveTreeCommit",
+      input.cwd,
+      ["rev-parse", "--verify", "--end-of-options", `${input.refName}^{commit}`],
+      {
+        timeoutMs: 10_000,
+        maxOutputBytes: 256,
+      },
+    );
+    const commit = result.stdout.trim();
+    if (!/^[0-9a-f]{40,64}$/i.test(commit)) {
+      return yield* new GitCommandError({
+        operation: "GitVcsDriver.resolveTreeCommit",
+        command: "git rev-parse",
+        cwd: input.cwd,
+        argumentCount: 4,
+        outputLength: result.stdout.length,
+        detail: `Git did not resolve '${input.refName}' to a commit.`,
+      });
+    }
+    return commit;
+  });
+
+  const listTree: GitVcsDriver.GitVcsDriver["Service"]["listTree"] = Effect.fn(
+    "GitVcsDriver.listTree",
+  )(function* (input) {
+    const commit = yield* resolveTreeCommit(input);
+    const result = yield* executeGit(
+      "GitVcsDriver.listTree",
+      input.cwd,
+      ["ls-tree", "-r", "-z", "--name-only", "--full-tree", commit, "--"],
+      {
+        timeoutMs: 30_000,
+        maxOutputBytes: VCS_TREE_MAX_OUTPUT_BYTES,
+      },
+    );
+    const mapped = projectEntriesFromGitTreePaths(splitNullSeparatedGitStdoutPaths(result));
+    return {
+      entries: [...mapped.entries],
+      truncated: mapped.truncated || result.stdoutTruncated,
+    };
+  });
+
+  const readFileAtRef: GitVcsDriver.GitVcsDriver["Service"]["readFileAtRef"] = Effect.fn(
+    "GitVcsDriver.readFileAtRef",
+  )(function* (input) {
+    if (!isSafeGitTreePath(input.relativePath)) {
+      return yield* new GitCommandError({
+        operation: "GitVcsDriver.readFileAtRef",
+        command: "git cat-file",
+        cwd: input.cwd,
+        argumentCount: 3,
+        detail: "The requested branch file path is not a safe repository-relative path.",
+      });
+    }
+    const commit = yield* resolveTreeCommit(input);
+    const objectName = `${commit}:${input.relativePath}`;
+    const sizeResult = yield* executeGit(
+      "GitVcsDriver.readFileAtRef.size",
+      input.cwd,
+      ["cat-file", "-s", objectName],
+      { timeoutMs: 10_000, maxOutputBytes: 64 },
+    );
+    const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10);
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+      return yield* new GitCommandError({
+        operation: "GitVcsDriver.readFileAtRef.size",
+        command: "git cat-file",
+        cwd: input.cwd,
+        argumentCount: 3,
+        outputLength: sizeResult.stdout.length,
+        detail: `Git returned an invalid size for '${input.relativePath}' at '${input.refName}'.`,
+      });
+    }
+    const contentsResult = yield* executeGit(
+      "GitVcsDriver.readFileAtRef.contents",
+      input.cwd,
+      ["cat-file", "blob", objectName],
+      {
+        timeoutMs: 30_000,
+        maxOutputBytes: VCS_TREE_FILE_MAX_OUTPUT_BYTES,
+      },
+    );
+    if (contentsResult.stdout.includes("\0")) {
+      return yield* new GitCommandError({
+        operation: "GitVcsDriver.readFileAtRef.contents",
+        command: "git cat-file",
+        cwd: input.cwd,
+        argumentCount: 3,
+        outputLength: contentsResult.stdout.length,
+        detail: `Cannot preview binary file '${input.relativePath}' from '${input.refName}'.`,
+      });
+    }
+    return {
+      relativePath: input.relativePath,
+      contents: contentsResult.stdout,
+      byteLength,
+      truncated: contentsResult.stdoutTruncated || byteLength > VCS_TREE_FILE_MAX_OUTPUT_BYTES,
+    };
+  });
+
   const listRefs: GitVcsDriver.GitVcsDriver["Service"]["listRefs"] = Effect.fn("listRefs")(
     function* (input) {
       const repositoryPaths = yield* resolveRepositoryPaths(input.cwd, input.refresh === true).pipe(
@@ -3253,6 +3408,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewDiffFileContents,
     readConfigValue,
     listRefs,
+    listTree,
+    readFileAtRef,
     createWorktree: (input) => withListRefsInvalidation(input.cwd, createWorktree(input)),
     fetchPullRequestBranch: (input) =>
       withListRefsInvalidation(input.cwd, fetchPullRequestBranch(input)),
