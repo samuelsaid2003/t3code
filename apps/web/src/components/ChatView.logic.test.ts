@@ -2,6 +2,7 @@ import {
   EnvironmentId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   TurnId,
@@ -20,6 +21,7 @@ import {
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
+  getComposerSendBlockReason,
   getStartedThreadModelChangeBlockReason,
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
@@ -519,6 +521,58 @@ describe("getStartedThreadModelChangeBlockReason", () => {
       description:
         "This provider does not allow switching models after a conversation has started.",
     });
+  });
+});
+
+describe("getComposerSendBlockReason", () => {
+  const providers = [
+    {
+      instanceId: ProviderInstanceId.make("codex"),
+    },
+    {
+      instanceId: ProviderInstanceId.make("claude"),
+    },
+  ];
+
+  it("blocks a pane from sending with a different provider than its bound thread", () => {
+    expect(
+      getComposerSendBlockReason({
+        lockedProvider: ProviderDriverKind.make("codex"),
+        selectedProvider: ProviderDriverKind.make("claudeAgent"),
+        providers,
+        hasStartedSession: true,
+        currentModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+        nextModelSelection: {
+          instanceId: ProviderInstanceId.make("claude"),
+          model: "claude-sonnet",
+        },
+      }),
+    ).toEqual({
+      title: "Start a new chat to change providers",
+      description: "This thread is already using codex.",
+    });
+  });
+
+  it("allows a pane to send with the provider already bound to its thread", () => {
+    expect(
+      getComposerSendBlockReason({
+        lockedProvider: ProviderDriverKind.make("codex"),
+        selectedProvider: ProviderDriverKind.make("codex"),
+        providers,
+        hasStartedSession: true,
+        currentModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+        nextModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+      }),
+    ).toBeNull();
   });
 });
 

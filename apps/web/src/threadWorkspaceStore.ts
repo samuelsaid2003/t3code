@@ -66,6 +66,15 @@ export function threadWorkspaceTargetKey(target: ThreadRouteTarget): string {
   return threadRef ? `server:${scopedThreadKey(threadRef)}` : `draft:${target.draftId}`;
 }
 
+// Unlike threadWorkspaceTargetKey, this key preserves the route's concrete
+// representation. Draft promotion keeps one logical thread identity, but the
+// pane still has to replace its draft target with the canonical server target.
+export function threadWorkspaceRouteKey(target: ThreadRouteTarget): string {
+  return target.kind === "server"
+    ? `server:${scopedThreadKey(target.threadRef)}`
+    : `draft:${target.draftId}`;
+}
+
 export function shouldNavigateThreadWorkspaceRoute(input: {
   readonly focusedTargetKey: string | null;
   readonly routeTargetKey: string;

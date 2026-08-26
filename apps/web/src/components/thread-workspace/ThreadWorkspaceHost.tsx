@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useRef, useSta
 import type { ReactNode } from "react";
 
 import type { ThreadRouteTarget } from "../../threadRoutes";
+import { threadWorkspaceRouteKey } from "../../threadWorkspaceStore";
 import { SidebarInset } from "../ui/sidebar";
 import { ThreadWorkspace } from "./ThreadWorkspace";
 
@@ -40,10 +41,7 @@ export function ThreadWorkspaceRouteTarget({ target }: { readonly target: Thread
   const register = useContext(ThreadWorkspaceRouteContext);
   const targetRef = useRef(target);
   targetRef.current = target;
-  const targetKey =
-    target.kind === "draft"
-      ? `draft:${target.draftId}`
-      : `server:${target.threadRef.environmentId}:${target.threadRef.threadId}`;
+  const targetKey = threadWorkspaceRouteKey(target);
 
   useLayoutEffect(() => {
     if (register === null) {

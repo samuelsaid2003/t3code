@@ -530,6 +530,24 @@ export function getStartedThreadModelChangeBlockReason(input: {
   };
 }
 
+export function getComposerSendBlockReason(input: {
+  lockedProvider: ProviderDriverKind | null;
+  selectedProvider: ProviderDriverKind;
+  providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "requiresNewThreadForModelChange">>;
+  hasStartedSession: boolean;
+  currentModelSelection: ModelSelection;
+  currentProviderInstanceId?: ModelSelection["instanceId"] | null | undefined;
+  nextModelSelection: ModelSelection;
+}): { title: string; description: string } | null {
+  if (input.lockedProvider !== null && input.selectedProvider !== input.lockedProvider) {
+    return {
+      title: "Start a new chat to change providers",
+      description: `This thread is already using ${input.lockedProvider}.`,
+    };
+  }
+  return getStartedThreadModelChangeBlockReason(input);
+}
+
 export async function waitForStartedServerThread(
   threadRef: ScopedThreadRef,
   timeoutMs = 1_000,

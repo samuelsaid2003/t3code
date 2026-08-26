@@ -14,6 +14,7 @@ import {
   selectThreadWorkspaceGroupActive,
   selectThreadWorkspaceGroupPanes,
   shouldNavigateThreadWorkspaceRoute,
+  threadWorkspaceRouteKey,
   threadWorkspaceTargetKey,
   useThreadWorkspaceStore,
 } from "./threadWorkspaceStore";
@@ -196,6 +197,36 @@ describe("threadWorkspaceStore", () => {
     expect(state.panes).toHaveLength(1);
     expect(state.panes[0]?.target.kind).toBe("server");
     useComposerDraftStore.getState().clearDraftThread(draftId);
+  });
+
+  it("resynchronizes the concrete route when a draft becomes its canonical server thread", () => {
+    const environmentId = "env-1" as EnvironmentId;
+    const threadId = ThreadId.make("thread-promoted");
+    const draftId = DraftId.make("draft-promoted");
+    const projectRef = scopeProjectRef(environmentId, ProjectId.make("project-1"));
+    const draftTarget = { kind: "draft", draftId } as const;
+    const serverThreadTarget = {
+      kind: "server",
+      threadRef: scopeThreadRef(environmentId, threadId),
+    } as const;
+    useComposerDraftStore.getState().setProjectDraftThreadId(projectRef, draftId, { threadId });
+
+    expect(threadWorkspaceTargetKey(draftTarget)).toBe(
+      threadWorkspaceTargetKey(serverThreadTarget),
+    );
+    expect(threadWorkspaceRouteKey(draftTarget)).not.toBe(
+      threadWorkspaceRouteKey(serverThreadTarget),
+    );
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(draftTarget);
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverThreadTarget);
+    useComposerDraftStore.getState().clearDraftThread(draftId);
+
+    const [pane] = useThreadWorkspaceStore.getState().panes;
+    expect(pane?.target).toEqual(serverThreadTarget);
+    expect(threadWorkspaceTargetKey(pane!.target)).toBe(
+      threadWorkspaceTargetKey(serverThreadTarget),
+    );
   });
 
   it("does not turn a pinned reorder into a workspace split", () => {

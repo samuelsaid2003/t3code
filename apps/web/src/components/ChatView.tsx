@@ -329,6 +329,7 @@ import {
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
+  getComposerSendBlockReason,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
@@ -350,7 +351,7 @@ import {
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { useComposerHandleContext } from "../composerHandleContext";
+import { publishFocusedComposerHandle, useComposerHandleContext } from "../composerHandleContext";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -1406,7 +1407,40 @@ function ChatViewContent(props: ChatViewProps) {
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
-  const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const globalComposerRef = useComposerHandleContext();
+  const publishedComposerHandleRef = useRef<ChatComposerHandle | null>(null);
+  const composerRef = localComposerRef;
+  const setComposerHandle = useCallback(
+    (nextHandle: ChatComposerHandle | null) => {
+      const previousHandle = publishedComposerHandleRef.current;
+      localComposerRef.current = nextHandle;
+      publishFocusedComposerHandle({
+        globalRef: globalComposerRef,
+        previousHandle,
+        nextHandle,
+        focused: workspaceFocused,
+      });
+      publishedComposerHandleRef.current = nextHandle;
+    },
+    [globalComposerRef, workspaceFocused],
+  );
+  useLayoutEffect(() => {
+    const handle = localComposerRef.current;
+    publishFocusedComposerHandle({
+      globalRef: globalComposerRef,
+      previousHandle: handle,
+      nextHandle: handle,
+      focused: workspaceFocused,
+    });
+    return () => {
+      publishFocusedComposerHandle({
+        globalRef: globalComposerRef,
+        previousHandle: handle,
+        nextHandle: null,
+        focused: workspaceFocused,
+      });
+    };
+  }, [globalComposerRef, workspaceFocused]);
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
@@ -5235,6 +5269,26 @@ function ChatViewContent(props: ChatViewProps) {
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
+    if (isServerThread) {
+      const sendBlockReason = getComposerSendBlockReason({
+        lockedProvider,
+        selectedProvider: ctxSelectedProvider,
+        providers: providerStatuses,
+        hasStartedSession: activeThread.session !== null,
+        currentModelSelection: activeThread.modelSelection,
+        currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
+        nextModelSelection: ctxSelectedModelSelection,
+      });
+      if (sendBlockReason) {
+        toastManager.add({
+          type: "warning",
+          title: sendBlockReason.title,
+          description: sendBlockReason.description,
+        });
+        scheduleComposerFocus();
+        return;
+      }
+    }
     const composerImages =
       directAnnotation?.image &&
       !sendContextImages.some((image) => image.id === directAnnotation.image?.id)
@@ -6056,6 +6110,24 @@ function ChatViewContent(props: ChatViewProps) {
         selectedPromptEffort: ctxSelectedPromptEffort,
         selectedModelSelection: ctxSelectedModelSelection,
       } = sendCtx;
+      const sendBlockReason = getComposerSendBlockReason({
+        lockedProvider,
+        selectedProvider: ctxSelectedProvider,
+        providers: providerStatuses,
+        hasStartedSession: activeThread.session !== null,
+        currentModelSelection: activeThread.modelSelection,
+        currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
+        nextModelSelection: ctxSelectedModelSelection,
+      });
+      if (sendBlockReason) {
+        toastManager.add({
+          type: "warning",
+          title: sendBlockReason.title,
+          description: sendBlockReason.description,
+        });
+        scheduleComposerFocus();
+        return;
+      }
 
       const threadIdForSend = activeThread.id;
       const messageIdForSend = newMessageId();
@@ -6164,9 +6236,12 @@ function ChatViewContent(props: ChatViewProps) {
       isSendBusy,
       isServerThread,
       localCheckoutBranchMismatch,
+      lockedProvider,
       persistThreadSettingsForNextTurn,
+      providerStatuses,
       resetLocalDispatch,
       runtimeMode,
+      scheduleComposerFocus,
       scrollToEnd,
       setComposerDraftInteractionMode,
       setThreadError,
@@ -6925,7 +7000,7 @@ function ChatViewContent(props: ChatViewProps) {
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
-                            composerRef={composerRef}
+                            composerRef={setComposerHandle}
                             composerDraftTarget={composerDraftTarget}
                             environmentId={environmentId}
                             attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}

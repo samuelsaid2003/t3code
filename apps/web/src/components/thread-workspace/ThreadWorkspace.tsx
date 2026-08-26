@@ -39,6 +39,7 @@ import { resolveThreadSyncPhase } from "../../threadSync";
 import {
   shouldNavigateThreadWorkspaceRoute,
   clampThreadWorkspaceRatio,
+  threadWorkspaceRouteKey,
   threadWorkspaceTargetKey,
   useThreadWorkspaceStore,
   type ThreadWorkspaceDropRegion,
@@ -514,12 +515,13 @@ export function ThreadWorkspace({ routeTarget }: { readonly routeTarget: ThreadR
   const routeTargetRef = useRef(routeTarget);
   const pendingRouteTargetKeyRef = useRef<string | null>(null);
   const routeTargetKey = threadWorkspaceTargetKey(routeTarget);
+  const routeKey = threadWorkspaceRouteKey(routeTarget);
   routeTargetRef.current = routeTarget;
 
   useLayoutEffect(() => {
     pendingRouteTargetKeyRef.current = routeTargetKey;
     syncRouteTarget(routeTargetRef.current);
-  }, [routeTargetKey, syncRouteTarget]);
+  }, [routeKey, routeTargetKey, syncRouteTarget]);
 
   const fallbackPane = useMemo<ThreadWorkspacePane>(
     () => ({ id: FALLBACK_PANE_ID, target: routeTarget }),
