@@ -12,6 +12,7 @@ function composerHandle(label: string): ChatComposerHandle {
     openModelPicker: vi.fn(),
     toggleModelPicker: vi.fn(),
     isModelPickerOpen: vi.fn(() => false),
+    compactContext: vi.fn(),
     readSnapshot: vi.fn(() => ({
       value: label,
       cursor: 0,

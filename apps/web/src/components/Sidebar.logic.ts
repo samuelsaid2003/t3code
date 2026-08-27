@@ -3,6 +3,7 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import {
+  activeThreadAnchorTimestampMs,
   getThreadSortTimestamp,
   sortThreads,
   toSortableTimestamp,
@@ -15,7 +16,7 @@ import { isLatestTurnSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
-export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
+export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
 // nearby thread usually reuses an already-hot subscription. Each prewarmed
 // thread holds a live, fully hydrated detail subscription (all messages and
@@ -540,18 +541,31 @@ export function firstValidTimestamp(
 
 // Active sidebar sort: the thread that most recently received a user prompt
 // stays nearest the top. Untouched threads fall back to creation time; agent
-// completions and metadata updates never move a row on their own.
+// completions and metadata updates never move a row on their own. Un-settling
+// re-anchors the row (see activeThreadAnchorTimestampMs) so it surfaces again
+// without changing transcript timestamps.
+function sidebarActiveSortTimestampMs(thread: {
+  readonly createdAt: string;
+  readonly latestUserMessageAt?: string | null;
+  readonly unsettledAt?: string | null | undefined;
+}): number {
+  return Math.max(
+    firstValidTimestampMs(thread.latestUserMessageAt),
+    activeThreadAnchorTimestampMs(thread),
+  );
+}
+
 export function sortThreadsForSidebar<
   T extends {
     readonly id: string;
     readonly createdAt: string;
     readonly latestUserMessageAt?: string | null;
+    readonly unsettledAt?: string | null | undefined;
   },
 >(threads: readonly T[]): T[] {
   return [...threads].toSorted(
     (left, right) =>
-      firstValidTimestampMs(right.latestUserMessageAt, right.createdAt) -
-        firstValidTimestampMs(left.latestUserMessageAt, left.createdAt) ||
+      sidebarActiveSortTimestampMs(right) - sidebarActiveSortTimestampMs(left) ||
       left.id.localeCompare(right.id),
   );
 }

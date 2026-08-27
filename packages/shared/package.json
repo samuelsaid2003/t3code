@@ -230,6 +230,10 @@
     "./desktopDistributionIdentity": {
       "types": "./src/desktopDistributionIdentity.ts",
       "import": "./src/desktopDistributionIdentity.ts"
+    },
+    "./claudeCompaction": {
+      "types": "./src/claudeCompaction.ts",
+      "import": "./src/claudeCompaction.ts"
     }
   },
   "scripts": {
