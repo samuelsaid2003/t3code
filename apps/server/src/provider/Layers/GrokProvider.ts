@@ -10,6 +10,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { HttpClient } from "effect/unstable/http";
@@ -30,6 +31,11 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
 import { makeGrokAcpRuntime, resolveGrokAcpBaseModelId } from "../acp/GrokAcpSupport.ts";
+import { fetchGrokCliProxyBilling } from "./grokCliProxyBilling.ts";
+import {
+  extractGrokSubscriptionUsage,
+  extractGrokSubscriptionUsedPercent,
+} from "./grokSubscriptionUsage.ts";
 
 const GROK_PRESENTATION = {
   displayName: "Grok",
@@ -43,6 +49,7 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const GROK_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+const GROK_BILLING_PROBE_TIMEOUT_MS = 8_000;
 
 const GROK_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
@@ -123,10 +130,13 @@ function buildGrokDiscoveredModelsFromSessionModelState(
     .filter((model): model is ServerProviderModel => model !== undefined);
 }
 
-const discoverGrokModelsViaAcp = (
-  grokSettings: GrokSettings,
-  environment: NodeJS.ProcessEnv = process.env,
-) =>
+type GrokAcpProbeSnapshot = {
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly subscriptionUsedPercent?: number;
+  readonly subscriptionUsage?: ReturnType<typeof extractGrokSubscriptionUsage>;
+};
+
+const probeGrokAcp = (grokSettings: GrokSettings, environment: NodeJS.ProcessEnv = process.env) =>
   Effect.gen(function* () {
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const acp = yield* makeGrokAcpRuntime({
@@ -136,8 +146,35 @@ const discoverGrokModelsViaAcp = (
       cwd: process.cwd(),
       clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
     });
-    const started = yield* acp.start();
-    return buildGrokDiscoveredModelsFromSessionModelState(started.sessionSetupResult.models);
+    const started = yield* acp
+      .start()
+      .pipe(Effect.timeoutOption(GROK_ACP_MODEL_DISCOVERY_TIMEOUT_MS));
+    if (Option.isNone(started)) {
+      return { _tag: "timeout" as const };
+    }
+
+    const acpBilling = yield* acp
+      .request("x.ai/billing", {})
+      .pipe(
+        Effect.timeoutOption(GROK_BILLING_PROBE_TIMEOUT_MS),
+        Effect.option,
+        Effect.map(Option.flatten),
+      );
+    const billingValue =
+      Option.getOrUndefined(acpBilling) ?? (yield* fetchGrokCliProxyBilling(environment));
+    const subscriptionUsage =
+      billingValue === undefined ? undefined : extractGrokSubscriptionUsage(billingValue);
+    const subscriptionUsedPercent =
+      billingValue === undefined ? undefined : extractGrokSubscriptionUsedPercent(billingValue);
+
+    return {
+      _tag: "ready" as const,
+      models: buildGrokDiscoveredModelsFromSessionModelState(
+        started.value.sessionSetupResult.models,
+      ),
+      ...(subscriptionUsedPercent === undefined ? {} : { subscriptionUsedPercent }),
+      ...(subscriptionUsage ? { subscriptionUsage } : {}),
+    } satisfies { readonly _tag: "ready" } & GrokAcpProbeSnapshot;
   }).pipe(Effect.scoped);
 
 const runGrokVersionCommand = (
@@ -164,7 +201,10 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
+  | ChildProcessSpawner.ChildProcessSpawner
+  | Crypto.Crypto
+  | FileSystem.FileSystem
+  | HttpClient.HttpClient
 > {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = grokModelsFromSettings(grokSettings.customModels);
@@ -251,10 +291,7 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
     });
   }
 
-  const discoveryExit = yield* discoverGrokModelsViaAcp(grokSettings, environment).pipe(
-    Effect.timeoutOption(GROK_ACP_MODEL_DISCOVERY_TIMEOUT_MS),
-    Effect.exit,
-  );
+  const discoveryExit = yield* probeGrokAcp(grokSettings, environment).pipe(Effect.exit);
   if (Exit.isFailure(discoveryExit)) {
     yield* Effect.logWarning("Grok ACP model discovery failed", {
       errorTag: causeErrorTag(discoveryExit.cause),
@@ -273,7 +310,7 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
       },
     });
   }
-  if (Option.isNone(discoveryExit.value)) {
+  if (discoveryExit.value._tag === "timeout") {
     yield* Effect.logWarning(
       `Grok ACP model discovery timed out after ${GROK_ACP_MODEL_DISCOVERY_TIMEOUT_MS}ms.`,
     );
@@ -291,7 +328,7 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
       },
     });
   }
-  const discoveredModels = discoveryExit.value.value;
+  const discoveredModels = discoveryExit.value.models;
   const models =
     discoveredModels.length > 0
       ? grokModelsFromSettings(grokSettings.customModels, discoveredModels)
@@ -307,6 +344,12 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
       version,
       status: "ready",
       auth: { status: "unknown" },
+      ...(typeof discoveryExit.value.subscriptionUsedPercent === "number"
+        ? { subscriptionUsedPercent: discoveryExit.value.subscriptionUsedPercent }
+        : {}),
+      ...(discoveryExit.value.subscriptionUsage
+        ? { subscriptionUsage: discoveryExit.value.subscriptionUsage }
+        : {}),
     },
   });
 });

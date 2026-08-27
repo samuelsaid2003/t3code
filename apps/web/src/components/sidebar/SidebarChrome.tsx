@@ -16,7 +16,7 @@ import { cn } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { primaryServerProvidersAtom, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { ClaudeAI, OpenAI } from "../Icons";
+import { ClaudeAI, GrokIcon, OpenAI } from "../Icons";
 import {
   formatProviderUsageReset,
   type ClaudeSidebarUsage,
@@ -331,8 +331,10 @@ function SidebarProviderUsageMeter({
   usage: ProviderSidebarUsage;
   onRefresh: () => void;
 }) {
-  const isCodex = provider.driver === "codex";
-  const Mark = isCodex ? OpenAI : ClaudeAI;
+  const isClaude = provider.driver === "claudeAgent";
+  const Mark =
+    provider.driver === "codex" ? OpenAI : provider.driver === "grok" ? GrokIcon : ClaudeAI;
+  const resetLabel = formatProviderUsageReset(usage.resetsAt);
 
   return (
     <section
@@ -347,7 +349,7 @@ function SidebarProviderUsageMeter({
         <span
           className={cn(
             "shrink-0 text-[11px] tabular-nums",
-            isCodex ? "text-sidebar-foreground" : "text-[#c56243] dark:text-[#e28b70]",
+            isClaude ? "text-[#c56243] dark:text-[#e28b70]" : "text-sidebar-foreground",
           )}
         >
           {usage.remainingPercent}% remaining
@@ -376,15 +378,20 @@ function SidebarProviderUsageMeter({
         aria-valuenow={usage.remainingPercent}
         className={cn(
           "mt-1.5 h-1 overflow-hidden rounded-full",
-          isCodex ? "bg-sidebar-foreground/15" : "bg-[#d97757]/15",
+          isClaude ? "bg-[#d97757]/15" : "bg-sidebar-foreground/15",
         )}
         role="progressbar"
       >
         <div
-          className={cn("h-full rounded-full", isCodex ? "bg-sidebar-foreground" : "bg-[#d97757]")}
+          className={cn("h-full rounded-full", isClaude ? "bg-[#d97757]" : "bg-sidebar-foreground")}
           style={{ width: `${usage.remainingPercent}%` }}
         />
       </div>
+      {resetLabel ? (
+        <div className="mt-1 text-[10px] leading-none text-sidebar-muted-foreground">
+          {resetLabel}
+        </div>
+      ) : null}
     </section>
   );
 }

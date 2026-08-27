@@ -35,11 +35,27 @@ describe("resolveProviderSidebarUsage", () => {
     ).toEqual({ providerName: "Codex", remainingPercent: 0 });
   });
 
+  it("provides Grok percentage-remaining meter data", () => {
+    expect(
+      resolveProviderSidebarUsage({
+        driver: ProviderDriverKind.make("grok"),
+        subscriptionUsedPercent: 40,
+        subscriptionUsage: {
+          weekly: { usedPercent: 40, durationMins: 10_080, resetsAt: "2026-08-31T05:00:00.000Z" },
+        },
+      }),
+    ).toEqual({
+      providerName: "Grok",
+      remainingPercent: 60,
+      resetsAt: "2026-08-31T05:00:00.000Z",
+    });
+  });
+
   it("hides missing and unsupported provider usage", () => {
     expect(resolveProviderSidebarUsage({ driver: ProviderDriverKind.make("codex") })).toBeNull();
     expect(
       resolveProviderSidebarUsage({
-        driver: ProviderDriverKind.make("grok"),
+        driver: ProviderDriverKind.make("cursor"),
         subscriptionUsedPercent: 40,
       }),
     ).toBeNull();

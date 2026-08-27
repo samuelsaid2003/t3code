@@ -12,8 +12,9 @@ export type ClaudeSidebarUsage = {
 };
 
 export type ProviderSidebarUsage = {
-  readonly providerName: "Codex" | "Claude";
+  readonly providerName: "Codex" | "Claude" | "Grok";
   readonly remainingPercent: number;
+  readonly resetsAt?: string;
 };
 
 function clampPercent(value: number): number {
@@ -27,14 +28,16 @@ function currentWindowLabel(durationMins: number | undefined): string {
 }
 
 export function resolveProviderSidebarUsage(
-  provider: Pick<ServerProvider, "driver" | "subscriptionUsedPercent">,
+  provider: Pick<ServerProvider, "driver" | "subscriptionUsedPercent" | "subscriptionUsage">,
 ): ProviderSidebarUsage | null {
   const providerName =
     provider.driver === "codex"
       ? "Codex"
       : provider.driver === "claudeAgent"
         ? "Claude"
-        : undefined;
+        : provider.driver === "grok"
+          ? "Grok"
+          : undefined;
   if (!providerName) {
     return null;
   }
@@ -44,7 +47,9 @@ export function resolveProviderSidebarUsage(
     return null;
   }
   const remainingPercent = 100 - Math.min(100, Math.max(0, Math.round(usedPercent)));
-  return { providerName, remainingPercent };
+  const resetsAt =
+    provider.subscriptionUsage?.weekly?.resetsAt ?? provider.subscriptionUsage?.current?.resetsAt;
+  return { providerName, remainingPercent, ...(resetsAt ? { resetsAt } : {}) };
 }
 
 export function resolveClaudeSidebarUsage(
