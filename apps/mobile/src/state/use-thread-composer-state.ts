@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 import * as Cause from "effect/Cause";
 
@@ -53,6 +53,7 @@ import { enqueueThreadOutboxMessage } from "./thread-outbox";
 import { useThreadOutboxMessages } from "./use-thread-outbox";
 import { threadEnvironment } from "./threads";
 import { useAtomCommand } from "./use-atom-command";
+import { modelSelectionsEqual } from "../features/agents/agent-chat-settings";
 
 export function appendReviewCommentToDraft(input: {
   readonly environmentId: EnvironmentId;
@@ -96,6 +97,16 @@ export function useThreadComposerState() {
   const uploadThreadFeedback = useAtomCommand(threadEnvironment.uploadFeedback, {
     reportFailure: false,
   });
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  const setThreadRuntimeMode = useAtomCommand(threadEnvironment.setRuntimeMode, {
+    reportFailure: false,
+  });
+  const setThreadInteractionMode = useAtomCommand(threadEnvironment.setInteractionMode, {
+    reportFailure: false,
+  });
+  const settingVersionsRef = useRef({ model: 0, runtime: 0, interaction: 0 });
 
   useEffect(() => {
     ensureComposerDraftsLoaded();
@@ -132,6 +143,33 @@ export function useThreadComposerState() {
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
   const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
   const interactionMode = selectedDraft?.interactionMode ?? selectedThread?.interactionMode ?? null;
+
+  useEffect(() => {
+    if (!selectedThreadKey || selectedThreadShell?.kind !== "agent") return;
+    const draft = getComposerDraftSnapshot(selectedThreadKey);
+    const modelSynced =
+      draft.modelSelection !== undefined &&
+      modelSelectionsEqual(draft.modelSelection, selectedThreadShell.modelSelection);
+    const runtimeSynced =
+      draft.runtimeMode !== undefined && draft.runtimeMode === selectedThreadShell.runtimeMode;
+    const interactionSynced =
+      draft.interactionMode !== undefined &&
+      draft.interactionMode === selectedThreadShell.interactionMode;
+    const syncedSettings: Parameters<typeof updateComposerDraftSettings>[1] = {
+      ...(modelSynced ? { modelSelection: undefined } : {}),
+      ...(runtimeSynced ? { runtimeMode: undefined } : {}),
+      ...(interactionSynced ? { interactionMode: undefined } : {}),
+    };
+    if (Object.keys(syncedSettings).length > 0) {
+      updateComposerDraftSettings(selectedThreadKey, syncedSettings);
+    }
+  }, [
+    selectedThreadKey,
+    selectedThreadShell?.interactionMode,
+    selectedThreadShell?.kind,
+    selectedThreadShell?.modelSelection,
+    selectedThreadShell?.runtimeMode,
+  ]);
 
   const selectedThreadSessionActivity = useMemo(() => {
     const selectedThread = selectedThreadDetail ?? selectedThreadShell;
@@ -365,32 +403,87 @@ export function useThreadComposerState() {
 
   const onUpdateModelSelection = useCallback(
     (value: ModelSelection) => {
-      if (!selectedThreadKey) {
+      if (!selectedThreadKey || !selectedThreadShell) {
         return;
       }
+      const previous = modelSelection;
       updateComposerDraftSettings(selectedThreadKey, { modelSelection: value });
+      if (selectedThreadShell.kind !== "agent") return;
+      const version = ++settingVersionsRef.current.model;
+      void updateThreadMetadata({
+        environmentId: selectedThreadShell.environmentId,
+        input: { threadId: selectedThreadShell.id, modelSelection: value },
+      }).then((result) => {
+        if (result._tag !== "Failure" || settingVersionsRef.current.model !== version) return;
+        updateComposerDraftSettings(selectedThreadKey, {
+          modelSelection: previous ?? undefined,
+        });
+        if (!isAtomCommandInterrupted(result)) {
+          const error = Cause.squash(result.cause);
+          Alert.alert(
+            "Could not save Agent model",
+            error instanceof Error ? error.message : "The previous model was restored.",
+          );
+        }
+      });
     },
-    [selectedThreadKey],
+    [modelSelection, selectedThreadKey, selectedThreadShell, updateThreadMetadata],
   );
 
   const onUpdateRuntimeMode = useCallback(
     (value: RuntimeMode) => {
-      if (!selectedThreadKey) {
+      if (!selectedThreadKey || !selectedThreadShell) {
         return;
       }
+      const previous = runtimeMode;
       updateComposerDraftSettings(selectedThreadKey, { runtimeMode: value });
+      if (selectedThreadShell.kind !== "agent") return;
+      const version = ++settingVersionsRef.current.runtime;
+      void setThreadRuntimeMode({
+        environmentId: selectedThreadShell.environmentId,
+        input: { threadId: selectedThreadShell.id, runtimeMode: value },
+      }).then((result) => {
+        if (result._tag !== "Failure" || settingVersionsRef.current.runtime !== version) return;
+        updateComposerDraftSettings(selectedThreadKey, { runtimeMode: previous ?? undefined });
+        if (!isAtomCommandInterrupted(result)) {
+          const error = Cause.squash(result.cause);
+          Alert.alert(
+            "Could not save Agent access mode",
+            error instanceof Error ? error.message : "The previous access mode was restored.",
+          );
+        }
+      });
     },
-    [selectedThreadKey],
+    [runtimeMode, selectedThreadKey, selectedThreadShell, setThreadRuntimeMode],
   );
 
   const onUpdateInteractionMode = useCallback(
     (value: ProviderInteractionMode) => {
-      if (!selectedThreadKey) {
+      if (!selectedThreadKey || !selectedThreadShell) {
         return;
       }
+      const previous = interactionMode;
       updateComposerDraftSettings(selectedThreadKey, { interactionMode: value });
+      if (selectedThreadShell.kind !== "agent") return;
+      const version = ++settingVersionsRef.current.interaction;
+      void setThreadInteractionMode({
+        environmentId: selectedThreadShell.environmentId,
+        input: { threadId: selectedThreadShell.id, interactionMode: value },
+      }).then((result) => {
+        if (result._tag !== "Failure" || settingVersionsRef.current.interaction !== version) return;
+        updateComposerDraftSettings(selectedThreadKey, {
+          interactionMode: previous ?? undefined,
+        });
+        if (!isAtomCommandInterrupted(result)) {
+          const error = Cause.squash(result.cause);
+          Alert.alert(
+            "Could not save Agent interaction mode",
+            error instanceof Error ? error.message : "The previous mode was restored.",
+          );
+        }
+      });
     },
-    [selectedThreadKey],
+    [interactionMode, selectedThreadKey, selectedThreadShell, setThreadInteractionMode],
   );
 
   return {

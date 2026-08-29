@@ -2,8 +2,9 @@
 
 > For maintainers. Using Agent Chats? See [the user guide](../user/agent-chats.md).
 
-Agent Chats are a desktop-only navigation layer over ordinary T3 orchestration. They deliberately
-do not introduce another agent runtime, scheduler process, or concurrency model.
+Agent Chats are a navigation layer over ordinary T3 orchestration. Desktop owns creation and
+routine management; desktop and mobile both expose the durable conversation. The feature
+deliberately does not introduce another agent runtime, scheduler process, or concurrency model.
 
 ## Domain model
 
@@ -27,8 +28,8 @@ and diffs remain visible in the shared conversation.
 ## Projection and UI
 
 Agent metadata is projected into `projection_threads` as JSON alongside `thread_kind`. Agent threads
-are excluded from the ordinary thread navigation. The Electron renderer exposes them through
-`/agents`; browser clients redirect that route to the normal workspace.
+are excluded from ordinary thread navigation. The Electron renderer exposes them through `/agents`;
+browser clients redirect that route to the normal workspace.
 
 The Agents sidebar reuses the shared sidebar chrome and footer so environment identification,
 provider usage, settings, pull requests, usage, and update controls stay identical to Threads. A
@@ -47,10 +48,25 @@ The parent thread holds a bounded run ledger. Completion, failure, and attention
 that ledger, which drives both the Agent Runs panel and desktop notifications. Notifications return
 the user to the owning Agent Chat, where the result is already inline.
 
+Mobile treats Threads and Agents as presentation-only selectors over the complete synchronized
+thread collection. Home and the iPad sidebar use a native segmented control; Agent mode is a flat
+recently-updated list without pending tasks, lifecycle shelves, swipe actions, or creation controls.
+The selected mode is in memory and starts in Threads on a cold launch. Only the scoped key of the
+last Agent Chat is persisted. On iPad each mode restores its own most recent selection; on iPhone
+switching modes replaces the list without navigating into a chat.
+
+Agent Chats reuse the normal mobile thread route and feed. Opening one updates the remembered key,
+including when navigation came from a deep link. Agent model, provider options, runtime access, and
+interaction changes persist immediately; standard threads retain save-on-send behavior. A failed
+Agent setting update restores the optimistic selection. Routine trigger messages are removed only
+while building the rendered feed, leaving synchronization, storage, history windows, cursors,
+outbox delivery, assistant responses, tools, and diffs untouched.
+
 ## Deliberate constraints
 
 - The desktop app must be open for schedules to fire.
 - There is no additional locking, queueing, or worktree allocation for overlap; routines are normal
   turns on their Agent Chat.
-- Scheduling is time-based only. External triggers, connectors, and web/mobile UI are outside this
-  feature.
+- Scheduling is time-based only. External triggers and connectors are outside this feature.
+- Mobile does not create or manage Agent Chats or routines, and it does not register for Agent run
+  push notifications in the first Samuel TestFlight release. Results synchronize when it reconnects.

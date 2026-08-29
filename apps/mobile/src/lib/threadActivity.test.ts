@@ -3,6 +3,7 @@ import { codexFeedbackMessage } from "@t3tools/client-runtime/state/threads";
 
 import {
   EventId,
+  AgentRunId,
   MessageId,
   ProjectId,
   ProviderInstanceId,
@@ -234,6 +235,39 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("hides scheduled routine trigger messages without hiding the response", () => {
+    const trigger = {
+      id: MessageId.make("routine-trigger"),
+      role: "user" as const,
+      text: "Run the daily briefing",
+      turnId: TurnId.make("routine-turn"),
+      routineRunId: AgentRunId.make("routine-run-1"),
+      createdAt: "2026-08-29T01:00:00.000Z",
+      updatedAt: "2026-08-29T01:00:00.000Z",
+      streaming: false,
+    };
+    const response = {
+      id: MessageId.make("routine-response"),
+      role: "assistant" as const,
+      text: "Your daily briefing is ready.",
+      turnId: TurnId.make("routine-turn"),
+      createdAt: "2026-08-29T01:00:01.000Z",
+      updatedAt: "2026-08-29T01:00:01.000Z",
+      streaming: false,
+    };
+    const feed = buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("agent-daily"),
+        projectId: ProjectId.make("project-1"),
+        title: "Daily briefing",
+        kind: "agent",
+        messages: [trigger, response],
+      }),
+    );
+
+    expect(feed.map((entry) => entry.id)).toEqual(["routine-response"]);
+  });
+
   it("keeps older local feedback before newer messages returned by the server", () => {
     const submission = {
       id: MessageId.make("feedback-command-ordering"),

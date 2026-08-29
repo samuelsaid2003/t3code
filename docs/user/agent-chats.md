@@ -1,7 +1,7 @@
 # Agent Chats
 
-Agent Chats are persistent coding teammates in the desktop app. Each one belongs to a project and
-keeps its own standing instructions, model, working mode, conversation, and scheduled routines.
+Agent Chats are persistent coding teammates. Each one belongs to a project and keeps its own
+standing instructions, model, working mode, conversation, and scheduled routines.
 
 Use the compact **Threads / Agent Chats** switch beside the new-chat button at the top of the
 sidebar. The Agent Chats sidebar has the same search, project filter, provider usage, and utility
@@ -21,3 +21,16 @@ Routine responses appear directly in the Agent Chat without showing the schedule
 message. Tool calls, approvals, diffs, and the agent response remain visible. **Agent Runs** keeps a
 compact status history, and T3 sends a desktop notification when a run completes, fails, or needs an
 approval or answer.
+
+## On iPhone and iPad
+
+Use the native **Threads / Agents** control at the top of Home or the iPad sidebar. Agents replace
+the normal thread list instead of mixing into it. Agent Chats use the full chat experience, including
+messages, tools, diffs, approvals, files, terminal access, and composer controls. Model, reasoning,
+auto/access, and interaction changes save immediately for an Agent Chat.
+
+The app starts in Threads after a cold launch. It remembers your last Agent Chat independently; on
+iPad, returning to Agents reopens it, while iPhone leaves you in the Agent list until you choose one.
+Agent creation and routine management remain in the desktop app. The first Samuel iOS release does
+not send background routine notifications, so new results appear when the app reconnects. For access
+away from the desktop's local network, connect the phone to the desktop host through Tailscale.

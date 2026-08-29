@@ -2,8 +2,13 @@ import { SymbolView } from "../../components/AppSymbol";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import type { MobileThreadListMode } from "../agents/agent-chat-navigation";
 
-export function WorkspaceEmptyDetail(props: { readonly onStartNewTask?: () => void }) {
+export function WorkspaceEmptyDetail(props: {
+  readonly mode?: MobileThreadListMode;
+  readonly onStartNewTask?: () => void;
+}) {
+  const isAgentMode = props.mode === "agents";
   return (
     <View className="flex-1 items-center justify-center bg-screen px-10">
       <View className="max-w-[360px] items-center gap-3">
@@ -13,9 +18,13 @@ export function WorkspaceEmptyDetail(props: { readonly onStartNewTask?: () => vo
           tintColorClassName={"accent-icon-subtle"}
           type="hierarchical"
         />
-        <Text className="text-center text-xl font-t3-bold">Select a thread</Text>
+        <Text className="text-center text-xl font-t3-bold">
+          {isAgentMode ? "Select an Agent Chat" : "Select a thread"}
+        </Text>
         <Text className="text-center text-base text-foreground-muted">
-          Choose a thread from the sidebar or start a new task.
+          {isAgentMode
+            ? "Choose a persistent Agent Chat from the sidebar."
+            : "Choose a thread from the sidebar or start a new task."}
         </Text>
         {props.onStartNewTask ? (
           <Pressable

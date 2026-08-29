@@ -1,0 +1,75 @@
+name: Release Samuel iOS to TestFlight
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release-ios-samuel
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    if: github.repository == 'samuelsaid2003/t3code'
+    name: Build and submit iOS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      APP_VARIANT: production
+      T3CODE_SAMUEL_RELEASE_BUILD: "1"
+      T3CODE_SAMUEL_EAS_OWNER: ${{ secrets.T3CODE_SAMUEL_EAS_OWNER }}
+      T3CODE_SAMUEL_EAS_PROJECT_ID: ${{ secrets.T3CODE_SAMUEL_EAS_PROJECT_ID }}
+      T3CODE_SAMUEL_APPLE_TEAM_ID: ${{ secrets.T3CODE_SAMUEL_APPLE_TEAM_ID }}
+      T3CODE_SAMUEL_ASC_APP_ID: ${{ secrets.T3CODE_SAMUEL_ASC_APP_ID }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/mobile...
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+
+      - name: Validate fork-owned release configuration
+        run: |
+          for name in EXPO_TOKEN T3CODE_SAMUEL_EAS_OWNER T3CODE_SAMUEL_EAS_PROJECT_ID T3CODE_SAMUEL_APPLE_TEAM_ID T3CODE_SAMUEL_ASC_APP_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required GitHub Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure App Store Connect submission
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const path = "eas.json";
+            const config = JSON.parse(fs.readFileSync(path, "utf8"));
+            Object.assign(config.build.production.env, {
+              T3CODE_SAMUEL_RELEASE_BUILD: "1",
+              T3CODE_SAMUEL_EAS_OWNER: process.env.T3CODE_SAMUEL_EAS_OWNER,
+              T3CODE_SAMUEL_EAS_PROJECT_ID: process.env.T3CODE_SAMUEL_EAS_PROJECT_ID,
+              T3CODE_SAMUEL_APPLE_TEAM_ID: process.env.T3CODE_SAMUEL_APPLE_TEAM_ID,
+            });
+            config.submit.production.ios = { ascAppId: process.env.T3CODE_SAMUEL_ASC_APP_ID };
+            fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+          '
+
+      - name: Build and submit to internal TestFlight
+        run: eas build --platform ios --profile production --auto-submit --non-interactive --no-wait

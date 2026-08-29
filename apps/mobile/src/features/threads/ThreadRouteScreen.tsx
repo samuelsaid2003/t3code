@@ -184,6 +184,7 @@ function ThreadRouteContent(
     fileInspector,
     layout,
     panes,
+    recordOpenedThread,
     showAuxiliaryPane,
     toggleAuxiliaryPane,
     togglePrimarySidebar,
@@ -194,6 +195,9 @@ function ThreadRouteContent(
     useThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  useEffect(() => {
+    if (selectedThread) recordOpenedThread(selectedThread);
+  }, [recordOpenedThread, selectedThread]);
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {
     if (selectedThread === null || !threadHasOlderTurns(selectedThreadDetailState)) {
@@ -299,6 +303,7 @@ function ThreadRouteContent(
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
   const headerSubtitle = [
+    selectedThread?.kind === "agent" ? "Agent Chat" : null,
     selectedThreadProject?.title ?? null,
     selectedEnvironmentConnection?.environmentLabel ?? null,
   ]
@@ -668,15 +673,25 @@ function ThreadRouteContent(
         onPress: togglePrimarySidebar,
         type: "button" as const,
       }),
-      withNativeGlassHeaderItem({
-        accessibilityLabel: "New task",
-        icon: { name: "square.and.pencil", type: "sfSymbol" as const },
-        identifier: "thread-left-new-task",
-        onPress: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
-        type: "button" as const,
-      }),
+      ...(selectedThread?.kind === "agent"
+        ? []
+        : [
+            withNativeGlassHeaderItem({
+              accessibilityLabel: "New task",
+              icon: { name: "square.and.pencil", type: "sfSymbol" as const },
+              identifier: "thread-left-new-task",
+              onPress: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+              type: "button" as const,
+            }),
+          ]),
     ],
-    [panes.primarySidebarVisible, props.onReturnToThread, navigation, togglePrimarySidebar],
+    [
+      panes.primarySidebarVisible,
+      props.onReturnToThread,
+      navigation,
+      selectedThread?.kind,
+      togglePrimarySidebar,
+    ],
   );
   const androidHeaderActions = useMemo<ReadonlyArray<AndroidHeaderAction>>(() => {
     if (Platform.OS !== "android") return [];

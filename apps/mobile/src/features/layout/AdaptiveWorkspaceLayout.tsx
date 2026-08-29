@@ -3,7 +3,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ThreadId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   NavigationContext,
@@ -36,7 +36,8 @@ import {
 } from "../../lib/layout";
 import { resolveThreadSelectionNavigationAction } from "../../lib/adaptive-navigation";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import { mobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { useThreadShells } from "../../state/entities";
 import {
   DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS,
   resolveMobileProjectGroupingSettings,
@@ -50,12 +51,22 @@ import { HomeListOptionsProvider } from "../home/home-list-options";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
+import {
+  listModeForOpenedThread,
+  mobileThreadShellKey,
+  resolveAgentThreadForModeSwitch,
+  standardThreadShells,
+  type MobileThreadListMode,
+} from "../agents/agent-chat-navigation";
 
 interface AdaptiveWorkspaceContextValue {
   readonly layout: Layout;
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
   readonly primarySidebarSearchQuery: string;
+  readonly threadListMode: MobileThreadListMode;
+  readonly setThreadListMode: (mode: MobileThreadListMode) => void;
+  readonly recordOpenedThread: (thread: EnvironmentThreadShell) => void;
   readonly activateAuxiliaryPaneRole: (role: WorkspaceAuxiliaryPaneRole) => () => void;
   /**
    * Route screens hand their inspector pane content to the workspace so it
@@ -89,6 +100,9 @@ const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
   panes: compactPanes,
   fileInspector: compactFileInspector,
   primarySidebarSearchQuery: "",
+  threadListMode: "threads",
+  setThreadListMode: () => undefined,
+  recordOpenedThread: () => undefined,
   activateAuxiliaryPaneRole: () => () => undefined,
   registerWorkspaceInspector: () => () => undefined,
   setPrimarySidebarSearchQuery: () => undefined,
@@ -193,11 +207,14 @@ export function AdaptiveWorkspaceLayout(props: {
   readonly pathname: string;
 }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   if (!AsyncResult.isSuccess(preferencesResult)) {
     return AsyncResult.isFailure(preferencesResult) ? (
       <AdaptiveWorkspaceLayoutContent
         {...props}
         projectGroupingMode={DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS.sidebarProjectGroupingMode}
+        lastAgentThreadKey={undefined}
+        onPersistLastAgentThreadKey={(key) => savePreferences({ lastAgentThreadKey: key })}
       />
     ) : null;
   }
@@ -206,6 +223,8 @@ export function AdaptiveWorkspaceLayout(props: {
     <AdaptiveWorkspaceLayoutContent
       {...props}
       projectGroupingMode={groupingSettings.sidebarProjectGroupingMode}
+      lastAgentThreadKey={preferencesResult.value.lastAgentThreadKey}
+      onPersistLastAgentThreadKey={(key) => savePreferences({ lastAgentThreadKey: key })}
     />
   );
 }
@@ -216,6 +235,8 @@ function AdaptiveWorkspaceLayoutContent(
     readonly pathname: string;
   } & {
     readonly projectGroupingMode: SidebarProjectGroupingMode;
+    readonly lastAgentThreadKey: string | undefined;
+    readonly onPersistLastAgentThreadKey: (key: string) => void;
   },
 ) {
   const projectGroupingMode = props.projectGroupingMode;
@@ -232,7 +253,19 @@ function AdaptiveWorkspaceLayoutContent(
   const [fileInspectorPreferredWidth, setFileInspectorPreferredWidth] = useState<number | null>(
     null,
   );
-  const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
+  const [threadListMode, setThreadListModeState] = useState<MobileThreadListMode>("threads");
+  const [threadSearchQuery, setThreadSearchQuery] = useState("");
+  const [agentSearchQuery, setAgentSearchQuery] = useState("");
+  const primarySidebarSearchQuery =
+    threadListMode === "agents" ? agentSearchQuery : threadSearchQuery;
+  const setPrimarySidebarSearchQuery =
+    threadListMode === "agents" ? setAgentSearchQuery : setThreadSearchQuery;
+  const threads = useThreadShells();
+  const lastStandardThreadKeyRef = useRef<string | null>(null);
+  const lastAgentThreadKeyRef = useRef(props.lastAgentThreadKey);
+  useEffect(() => {
+    lastAgentThreadKeyRef.current = props.lastAgentThreadKey;
+  }, [props.lastAgentThreadKey]);
   const [focusedAuxiliaryPaneRole, setFocusedAuxiliaryPaneRole] =
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
   const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
@@ -400,12 +433,67 @@ function AdaptiveWorkspaceLayoutContent(
     },
     [auxiliaryPaneRole],
   );
+  const recordOpenedThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      const mode = listModeForOpenedThread(thread);
+      const key = mobileThreadShellKey(thread);
+      if (mode === "agents") {
+        if (lastAgentThreadKeyRef.current !== key) {
+          lastAgentThreadKeyRef.current = key;
+          props.onPersistLastAgentThreadKey(key);
+        }
+      } else {
+        lastStandardThreadKeyRef.current = key;
+      }
+      setThreadListModeState(mode);
+    },
+    [props.onPersistLastAgentThreadKey],
+  );
+  const setThreadListMode = useCallback(
+    (mode: MobileThreadListMode) => {
+      if (mode === threadListMode) return;
+      setThreadListModeState(mode);
+      if (!layout.usesSplitView) return;
+
+      const target =
+        mode === "agents"
+          ? resolveAgentThreadForModeSwitch(threads, lastAgentThreadKeyRef.current)
+          : (standardThreadShells(threads).find(
+              (thread) => mobileThreadShellKey(thread) === lastStandardThreadKeyRef.current,
+            ) ?? null);
+      if (target) {
+        const targetKey = mobileThreadShellKey(target);
+        if (targetKey === selectedThreadKey) return;
+        setFileInspectorPreferredVisible(false);
+        const params = {
+          environmentId: String(target.environmentId),
+          threadId: String(target.id),
+        };
+        if (parseActiveThreadPath(pathname) !== null) {
+          navigation.dispatch(StackActions.replace("Thread", params));
+        } else {
+          navigation.navigate("Thread", params);
+        }
+        return;
+      }
+
+      if (parseActiveThreadPath(pathname) !== null) {
+        navigation.dispatch(StackActions.replace("Home"));
+      } else {
+        navigation.navigate("Home");
+      }
+    },
+    [layout.usesSplitView, navigation, pathname, selectedThreadKey, threadListMode, threads],
+  );
   const contextValue = useMemo(
     () => ({
       layout,
       panes,
       fileInspector,
       primarySidebarSearchQuery,
+      threadListMode,
+      setThreadListMode,
+      recordOpenedThread,
       activateAuxiliaryPaneRole,
       registerWorkspaceInspector,
       setPrimarySidebarSearchQuery,
@@ -420,12 +508,15 @@ function AdaptiveWorkspaceLayoutContent(
       layout,
       panes,
       primarySidebarSearchQuery,
+      recordOpenedThread,
       registerWorkspaceInspector,
       showAuxiliaryPane,
       setPrimarySidebarSearchQuery,
+      setThreadListMode,
       setAuxiliaryPaneWidth,
       toggleAuxiliaryPane,
       togglePrimarySidebar,
+      threadListMode,
     ],
   );
 
@@ -534,7 +625,9 @@ function AdaptiveWorkspaceLayoutContent(
               style={sidebarAnimatedStyle}
             >
               <View className="flex-1" style={{ width: layout.listPaneWidth }}>
-                <AndroidHomeFabLayout onStartNewTask={handleStartNewTask}>
+                <AndroidHomeFabLayout
+                  onStartNewTask={threadListMode === "threads" ? handleStartNewTask : undefined}
+                >
                   <ThreadNavigationSidebar
                     width={layout.listPaneWidth}
                     visible={panes.primarySidebarVisible}

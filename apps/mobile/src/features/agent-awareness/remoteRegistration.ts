@@ -160,7 +160,7 @@ function readRelayConfig(): { readonly url: string } | null {
 }
 
 function canRegisterRemoteLiveActivities(): boolean {
-  return Platform.OS === "ios";
+  return Platform.OS === "ios" && supportsAgentAwarenessPush();
 }
 
 export function shouldRegisterAgentAwarenessDeviceForProvider(
@@ -473,7 +473,7 @@ export function armAgentAwarenessLiveActivityForLocalWork(input: {
   readonly threadTitle: string;
   readonly projectTitle: string;
 }): void {
-  if (!canRegisterRemoteLiveActivities() || !relayTokenProvider) {
+  if (!canRegisterRemoteLiveActivities() || !supportsAgentAwarenessPush() || !relayTokenProvider) {
     return;
   }
   if (!environmentPublishesAgentActivity(input.environmentId)) {
@@ -694,7 +694,7 @@ function registerDevice(
   expectedGeneration = deviceRegistrationGeneration,
 ): Effect.Effect<void, unknown, ManagedRelay.ManagedRelayClient> {
   return Effect.gen(function* () {
-    if (!canRegisterRemoteLiveActivities()) {
+    if (!canRegisterRemoteLiveActivities() || !supportsAgentAwarenessPush()) {
       logRegistrationDebug("device registration skipped; platform does not support it");
       return;
     }

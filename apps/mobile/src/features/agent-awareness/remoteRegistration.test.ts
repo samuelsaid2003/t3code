@@ -332,6 +332,26 @@ describe("makeRelayDeviceRegistrationRequest", () => {
     });
   });
 
+  it("disables push features when the fork build declares them unsupported", () => {
+    Constants.expoConfig!.extra = { agentAwarenessPushSupported: false };
+
+    expect(
+      makeRelayDeviceRegistrationRequest({
+        deviceId: "device-1",
+        label: "Samuel's iPhone",
+        iosMajorVersion: 18,
+        appVersion: "1.0.4",
+        pushToken: "apns-token",
+        pushToStartToken: "push-to-start-token",
+        notificationsEnabled: true,
+        preferences: {},
+      }).preferences,
+    ).toMatchObject({
+      liveActivitiesEnabled: false,
+      notificationsEnabled: false,
+    });
+  });
+
   it("marks notification delivery disabled when APNs permission is unavailable", () => {
     expect(
       makeRelayDeviceRegistrationRequest({
@@ -393,6 +413,19 @@ describe("makeRelayDeviceRegistrationRequest", () => {
 
       expect(activity.getPushToken).toHaveBeenCalledTimes(2);
       expect(addPushTokenListener).toHaveBeenCalledTimes(1);
+    }).pipe(Effect.provide(relayTestLayer));
+  });
+
+  it.effect("does not read a Live Activity push token in unsupported builds", () => {
+    Constants.expoConfig!.extra = { agentAwarenessPushSupported: false };
+    const activity = {
+      getPushToken: vi.fn(() => Promise.resolve("activity-token")),
+      addPushTokenListener: vi.fn(),
+    };
+
+    return Effect.gen(function* () {
+      expect(yield* registerLiveActivityPushToken({ activity: activity as never })).toBe(false);
+      expect(activity.getPushToken).not.toHaveBeenCalled();
     }).pipe(Effect.provide(relayTestLayer));
   });
 
@@ -897,6 +930,23 @@ describe("makeRelayDeviceRegistrationRequest", () => {
       projectTitle: "t3code",
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(widgetMocks.start).not.toHaveBeenCalled();
+  });
+
+  it("skips the Live Activity seed when the fork build declares it unsupported", async () => {
+    Constants.expoConfig!.extra = { agentAwarenessPushSupported: false };
+    setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
+    environmentConfigsMock.configs.set("env-1", {
+      environment: { capabilities: { agentActivityPublishing: true } },
+    });
+
+    armAgentAwarenessLiveActivityForLocalWork({
+      environmentId: "env-1" as EnvironmentId,
+      threadTitle: "Fix the flaky test",
+      projectTitle: "t3code",
+    });
+    await Promise.resolve();
 
     expect(widgetMocks.start).not.toHaveBeenCalled();
   });

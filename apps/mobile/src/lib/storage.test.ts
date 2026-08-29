@@ -202,6 +202,16 @@ describe("mobile connection storage", () => {
     await expect(loadPreferences()).resolves.toEqual({});
   });
 
+  it("keeps only scoped Agent Chat preference keys", async () => {
+    mocks.setPreferencesJson(JSON.stringify({ lastAgentThreadKey: "environment-a:agent-1" }), 10);
+    await expect(loadPreferences()).resolves.toEqual({
+      lastAgentThreadKey: "environment-a:agent-1",
+    });
+
+    mocks.setPreferencesJson(JSON.stringify({ lastAgentThreadKey: "not-scoped" }), 20);
+    await expect(loadPreferences()).resolves.toEqual({});
+  });
+
   it("falls back to secure storage when SQLite cannot save preferences", async () => {
     mocks.setDatabaseFailures(true, true);
     await expect(savePreferencesPatch({ baseFontSize: 19 })).resolves.toEqual({ baseFontSize: 19 });

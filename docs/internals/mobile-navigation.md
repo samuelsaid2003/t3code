@@ -5,6 +5,12 @@ The iOS Home and thread routes share the root native stack in
 controller lets UIKit animate the header between routes. The iPad sidebar owns
 a separate, single-screen stack; Android uses its own in-flow headers.
 
+Home and the iPad sidebar expose a native `Threads | Agents` segmented control. The mode itself is
+not persisted, so every cold launch begins in Threads unless an Agent deep link opens a chat. Search
+text is kept independently for each list. On iPad a mode change navigates directly to that mode's
+remembered selection; on iPhone it replaces only the Home list. Keep the underlying complete thread
+collection mounted in synchronization and cursor state—filter only the visual selectors.
+
 Home and the iPad sidebar render their brand and connection status through
 `headerTitle`, with `Threads` retained as the route title. The editor-style native
 bar aligns that title on the leading side. Do not model the brand as a toolbar

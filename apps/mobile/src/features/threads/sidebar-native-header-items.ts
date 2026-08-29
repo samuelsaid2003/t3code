@@ -61,3 +61,13 @@ export function createSidebarHeaderItems(input: {
     }),
   ];
 }
+
+export function createSidebarSettingsHeaderItem(onOpenSettings: () => void): NativeStackHeaderItem {
+  return withNativeGlassHeaderItem({
+    type: "button",
+    label: "",
+    accessibilityLabel: "Open settings",
+    icon: sfSymbolIcon("gearshape"),
+    onPress: onOpenSettings,
+  });
+}

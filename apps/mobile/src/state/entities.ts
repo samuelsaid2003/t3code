@@ -10,7 +10,9 @@ import type {
   ServerConfig,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
+import { useMemo } from "react";
 
+import { agentThreadShells, standardThreadShells } from "../features/agents/agent-chat-navigation";
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom, serverEnvironment } from "./server";
 import { environmentThreadShells } from "./threads";
@@ -31,6 +33,18 @@ export function useProjects(): ReadonlyArray<EnvironmentProject> {
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return useAtomValue(environmentThreadShells.threadShellsAtom);
+}
+
+/** Presentation-only selector. Raw synchronization continues through useThreadShells. */
+export function useStandardThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
+  const threads = useThreadShells();
+  return useMemo(() => standardThreadShells(threads), [threads]);
+}
+
+/** Agent Chats are a separate visual mode over the same durable thread collection. */
+export function useAgentThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
+  const threads = useThreadShells();
+  return useMemo(() => agentThreadShells(threads), [threads]);
 }
 
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {

@@ -32,10 +32,12 @@ import {
   PROJECT_SORT_OPTIONS,
   THREAD_SORT_OPTIONS,
 } from "./home-list-options";
+import type { MobileThreadListMode } from "../agents/agent-chat-navigation";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
 export function HomeHeader(props: {
+  readonly mode: MobileThreadListMode;
   readonly environments: ReadonlyArray<HomeHeaderEnvironment>;
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly searchQuery: string;
@@ -229,28 +231,30 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
               }
             />
 
-            <ControlPillMenu
-              actions={menuActions}
-              isAnchoredToRight
-              onPressAction={handleMenuAction}
-            >
-              <Pressable
-                accessibilityLabel="Filter and sort threads"
-                accessibilityRole="button"
-                className="size-11 items-center justify-center rounded-full bg-subtle"
+            {props.mode === "threads" ? (
+              <ControlPillMenu
+                actions={menuActions}
+                isAnchoredToRight
+                onPressAction={handleMenuAction}
               >
-                <SymbolView
-                  name={
-                    hasCustomListOptions
-                      ? "line.3.horizontal.decrease.circle.fill"
-                      : "line.3.horizontal.decrease.circle"
-                  }
-                  size={16}
-                  tintColorClassName={"accent-icon"}
-                  type="monochrome"
-                />
-              </Pressable>
-            </ControlPillMenu>
+                <Pressable
+                  accessibilityLabel="Filter and sort threads"
+                  accessibilityRole="button"
+                  className="size-11 items-center justify-center rounded-full bg-subtle"
+                >
+                  <SymbolView
+                    name={
+                      hasCustomListOptions
+                        ? "line.3.horizontal.decrease.circle.fill"
+                        : "line.3.horizontal.decrease.circle"
+                    }
+                    size={16}
+                    tintColorClassName={"accent-icon"}
+                    type="monochrome"
+                  />
+                </Pressable>
+              </ControlPillMenu>
+            ) : null}
             {/* Built identically to the filter button so the two circles
                 match exactly (ControlPill sizes via Tailwind classes and
                 resolves to a different box). */}
@@ -277,10 +281,10 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
               type="monochrome"
             />
             <TextInput
-              accessibilityLabel="Search threads"
+              accessibilityLabel={props.mode === "agents" ? "Search Agent Chats" : "Search threads"}
               autoCapitalize="none"
               onChangeText={props.onSearchQueryChange}
-              placeholder="Search threads"
+              placeholder={props.mode === "agents" ? "Search Agent Chats" : "Search threads"}
               placeholderTextColorClassName="accent-placeholder"
               className="flex-1 py-2.5 text-base font-sans text-foreground"
               value={props.searchQuery}
@@ -329,7 +333,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[filterMenu.items, props.mode]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
@@ -353,16 +357,20 @@ function IosHomeHeader(props: HomeHeaderProps) {
             ? {
                 unstable_headerToolbarItems: () => [
                   createNativeMailSearchToolbarItem({
-                    composeButtonId: "home-new-task",
-                    composeSystemImageName: "square.and.pencil",
-                    filterMenu,
-                    filterButtonId: "home-filter",
-                    filterSystemImageName: hasCustomListOptions
-                      ? "line.3.horizontal.decrease.circle.fill"
-                      : "line.3.horizontal.decrease",
-                    onComposePress: props.onStartNewTask,
+                    ...(props.mode === "threads"
+                      ? {
+                          composeButtonId: "home-new-task",
+                          composeSystemImageName: "square.and.pencil",
+                          filterMenu,
+                          filterButtonId: "home-filter",
+                          filterSystemImageName: hasCustomListOptions
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease",
+                          onComposePress: props.onStartNewTask,
+                        }
+                      : {}),
                     onSearchTextChange: props.onSearchQueryChange,
-                    placeholder: "Search",
+                    placeholder: props.mode === "agents" ? "Search Agent Chats" : "Search",
                     searchTextChangeId: "home-search-text",
                     showsSearchDismissButton: true,
                   }),
@@ -375,7 +383,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
                   ref: searchBarRef,
                   autoCapitalize: "none" as const,
                   hideNavigationBar: false,
-                  placeholder: "Search",
+                  placeholder: props.mode === "agents" ? "Search Agent Chats" : "Search",
                   onCancelButtonPress: () => {
                     props.onSearchQueryChange("");
                   },
@@ -387,7 +395,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
         }}
       />
 
-      {NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED ? null : (
+      {NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED || props.mode === "agents" ? null : (
         <NativeHeaderToolbar placement="bottom">
           <NativeHeaderToolbar.Menu
             accessibilityLabel="Filter and sort threads"

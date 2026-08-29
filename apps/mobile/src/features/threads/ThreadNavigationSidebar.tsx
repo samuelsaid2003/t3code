@@ -27,7 +27,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useAgentThreadShells, useProjects, useStandardThreadShells } from "../../state/entities";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2Enabled } from "./use-thread-list-v2-enabled";
@@ -64,6 +64,7 @@ import {
 import { SidebarHeaderActions } from "./sidebar-header-actions";
 import { SidebarFilterButton } from "./sidebar-filter-button";
 import { createSidebarHeaderItems } from "./sidebar-native-header-items";
+import { createSidebarSettingsHeaderItem } from "./sidebar-native-header-items";
 import { SidebarNavigationShell } from "./sidebar-navigation-shell";
 import {
   PendingTaskListRow,
@@ -85,6 +86,9 @@ import {
   type ThreadListV2ChangeRequestState,
   type ThreadListV2ListItem,
 } from "./threadListV2";
+import { AgentChatsList } from "../agents/AgentChatsList";
+import { AgentListModeControl } from "../agents/AgentListModeControl";
+import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 
 /** The sidebar list serves both lists: v1 grouped items or, when the Thread
     List v2 beta is on, flat v2 rows with queued tasks spliced in, and a settled
@@ -142,9 +146,138 @@ function NativeSidebarContainer(props: ThreadNavigationSidebarProps) {
 function ThreadNavigationSidebarPane(
   props: ThreadNavigationSidebarProps & { readonly nativeChrome: boolean },
 ) {
+  const { threadListMode } = useAdaptiveWorkspaceLayout();
+  return threadListMode === "agents" ? (
+    <AgentNavigationSidebarPane {...props} />
+  ) : (
+    <StandardThreadNavigationSidebarPane {...props} />
+  );
+}
+
+function AgentNavigationSidebarPane(
+  props: ThreadNavigationSidebarProps & { readonly nativeChrome: boolean },
+) {
   const insets = useSafeAreaInsets();
   const projects = useProjects();
-  const threads = useThreadShells();
+  const agents = useAgentThreadShells();
+  const { savedConnectionsById } = useSavedRemoteConnections();
+  const searchInputRef = useRef<TextInput>(null);
+  const searchBarRef = useRef<SearchBarCommands>(null);
+  const { setThreadListMode, threadListMode } = useAdaptiveWorkspaceLayout();
+  const focusSearch = useCallback(() => {
+    const focus = () => {
+      if (props.nativeChrome) searchBarRef.current?.focus();
+      else searchInputRef.current?.focus();
+    };
+    if (!props.visible) {
+      props.onRequestVisibility();
+      setTimeout(focus, 240);
+    } else {
+      focus();
+    }
+    return true;
+  }, [props.nativeChrome, props.onRequestVisibility, props.visible]);
+  useHardwareKeyboardCommand("focusSearch", focusSearch);
+  const settingsHeaderItem = useMemo(
+    () => createSidebarSettingsHeaderItem(props.onOpenSettings),
+    [props.onOpenSettings],
+  );
+
+  const list = (
+    <AgentChatsList
+      agents={agents}
+      projects={projects}
+      savedConnectionsById={savedConnectionsById}
+      searchQuery={props.searchQuery}
+      selectedThreadKey={props.selectedThreadKey}
+      variant="sidebar"
+      onSelectAgent={props.onSelectThread}
+    />
+  );
+
+  if (props.nativeChrome) {
+    return (
+      <>
+        <NativeStackScreenOptions
+          optionsVersion={[props.width, settingsHeaderItem]}
+          options={{
+            ...getConnectionAwareBrandHeaderOptions({
+              headerWidth: props.width,
+              trailingItemCount: 1,
+              onOpenEnvironments: props.onOpenEnvironmentSettings,
+              fallbackTitleStyle: { fontSize: 18, fontWeight: "800" },
+            }),
+            headerSearchBarOptions: {
+              ref: searchBarRef,
+              autoCapitalize: "none",
+              hideNavigationBar: false,
+              hideWhenScrolling: false,
+              obscureBackground: false,
+              placeholder: "Search Agent Chats",
+              placement: "stacked",
+              onCancelButtonPress: () => props.onSearchQueryChange(""),
+              onChangeText: (event) => props.onSearchQueryChange(event.nativeEvent.text),
+            },
+            unstable_headerRightItems: () => [settingsHeaderItem],
+          }}
+        />
+        <View className="flex-1 bg-drawer">
+          <AgentListModeControl
+            mode={threadListMode}
+            nativeHeaderInset
+            onChange={setThreadListMode}
+          />
+          {list}
+        </View>
+      </>
+    );
+  }
+
+  return (
+    <View className="flex-1 bg-drawer" style={{ paddingTop: insets.top }}>
+      <View className="h-[50px] flex-row items-end gap-2 px-4">
+        <WorkspaceConnectionTitle
+          grow
+          onPress={props.onOpenEnvironmentSettings}
+          size="pageTitle"
+          brand={<CompactBrandTitle allowFontScaling={false} />}
+        />
+        <SidebarHeaderActions onOpenSettings={props.onOpenSettings} />
+      </View>
+      <View className="mx-4 mt-2 h-[38px] flex-row items-center gap-1.5 rounded-xl bg-sidebar-search pr-2.5 pl-[11px]">
+        <SymbolView
+          name="magnifyingglass"
+          size={15}
+          tintColorClassName="accent-foreground-muted"
+          type="monochrome"
+        />
+        <TextInput
+          ref={searchInputRef}
+          accessibilityLabel="Search Agent Chats"
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+          onChangeText={props.onSearchQueryChange}
+          placeholder="Search Agent Chats"
+          placeholderTextColorClassName="accent-placeholder"
+          returnKeyType="search"
+          className="h-[34px] flex-1 px-0 py-0 font-sans text-base text-foreground"
+          value={props.searchQuery}
+        />
+      </View>
+      <AgentListModeControl mode={threadListMode} onChange={setThreadListMode} />
+      {list}
+    </View>
+  );
+}
+
+function StandardThreadNavigationSidebarPane(
+  props: ThreadNavigationSidebarProps & { readonly nativeChrome: boolean },
+) {
+  const insets = useSafeAreaInsets();
+  const projects = useProjects();
+  const threads = useStandardThreadShells();
+  const { setThreadListMode, threadListMode } = useAdaptiveWorkspaceLayout();
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const searchInputRef = useRef<TextInput>(null);
@@ -1190,6 +1323,11 @@ function ThreadNavigationSidebarPane(
           }}
         />
         <View className="flex-1">
+          <AgentListModeControl
+            mode={threadListMode}
+            nativeHeaderInset
+            onChange={setThreadListMode}
+          />
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
               <LegendList
@@ -1319,6 +1457,7 @@ function ThreadNavigationSidebarPane(
             value={props.searchQuery}
           />
         </View>
+        <AgentListModeControl mode={threadListMode} onChange={setThreadListMode} />
       </View>
     </View>
   );

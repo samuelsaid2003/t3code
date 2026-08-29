@@ -46,6 +46,8 @@ export interface Preferences {
   readonly threadListV2SettledShelfExpanded?: boolean;
   /** Undefined preserves the default collapsed Snoozed shelf. */
   readonly threadListV2SnoozedShelfExpanded?: boolean;
+  /** Last opened Agent Chat across environments, encoded as environmentId:threadId. */
+  readonly lastAgentThreadKey?: string;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedErrorClass<MobilePreferencesLoadError>()(
@@ -85,7 +87,7 @@ export class MobilePreferencesStore extends Context.Service<
   }
 >()("@t3tools/mobile/persistence/MobilePreferencesStore") {}
 
-function sanitizePreferences(parsed: Preferences): Preferences {
+export function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
     liveActivitiesEnabled?: boolean;
     themeId?: MobileThemeId;
@@ -106,6 +108,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     planModeEnabled?: boolean;
     threadListV2SettledShelfExpanded?: boolean;
     threadListV2SnoozedShelfExpanded?: boolean;
+    lastAgentThreadKey?: string;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -181,6 +184,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListV2SnoozedShelfExpanded === "boolean") {
     preferences.threadListV2SnoozedShelfExpanded = parsed.threadListV2SnoozedShelfExpanded;
+  }
+  if (typeof parsed.lastAgentThreadKey === "string") {
+    const separator = parsed.lastAgentThreadKey.indexOf(":");
+    if (separator > 0 && separator < parsed.lastAgentThreadKey.length - 1) {
+      preferences.lastAgentThreadKey = parsed.lastAgentThreadKey;
+    }
   }
   return preferences;
 }

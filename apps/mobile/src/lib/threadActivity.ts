@@ -1558,9 +1558,13 @@ export function buildThreadFeed(
   },
 ): ThreadFeedEntry[] {
   const loadedMessages = options?.loadedMessages ?? thread.messages;
-  const messages = options?.localMessages
+  const messagesWithLocal = options?.localMessages
     ? [...loadedMessages, ...options.localMessages]
     : loadedMessages;
+  // Scheduled prompts remain durable in the thread model but are presentation
+  // metadata, not authored chat. Keep the resulting assistant text and all
+  // tool/diff activity while hiding only the stamped trigger message.
+  const messages = messagesWithLocal.filter((message) => message.routineRunId === undefined);
   const oldestLoadedMessageCreatedAt =
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
   const workLogEntries = deriveWorkLogEntries(thread.activities);

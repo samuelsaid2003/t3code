@@ -10,6 +10,10 @@ Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
 const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
+const isSamuelReleaseBuild = repoEnv.T3CODE_SAMUEL_RELEASE_BUILD === "1";
+const samuelEasOwner = repoEnv.T3CODE_SAMUEL_EAS_OWNER?.trim();
+const samuelEasProjectId = repoEnv.T3CODE_SAMUEL_EAS_PROJECT_ID?.trim();
+const samuelAppleTeamId = repoEnv.T3CODE_SAMUEL_APPLE_TEAM_ID?.trim();
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -27,6 +31,21 @@ if (
   throw new Error(
     "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
   );
+}
+
+if (isSamuelReleaseBuild) {
+  const missingReleaseInputs = [
+    ["T3CODE_SAMUEL_EAS_OWNER", samuelEasOwner],
+    ["T3CODE_SAMUEL_EAS_PROJECT_ID", samuelEasProjectId],
+    ["T3CODE_SAMUEL_APPLE_TEAM_ID", samuelAppleTeamId],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+  if (missingReleaseInputs.length > 0) {
+    throw new Error(
+      `Samuel release builds require fork-owned configuration: ${missingReleaseInputs.join(", ")}.`,
+    );
+  }
 }
 
 const DEVELOPMENT_ASSETS = {
@@ -51,41 +70,29 @@ const PREVIEW_ASSETS = {
   androidNotificationColor: "#7565C7",
 } as const;
 
-const RELEASE_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#000000",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#FFFFFF",
-} as const;
-
 const VARIANT_CONFIG = {
   development: {
-    appName: "T3 Code Dev",
-    scheme: "t3code-dev",
-    iosBundleIdentifier: "com.t3tools.t3code.dev",
-    androidPackage: "com.t3tools.t3code.dev",
-    relyingParty: "clerk.t3.codes",
+    appName: "T3 Code (Samuel) Dev",
+    scheme: "t3code-samuel-dev",
+    iosBundleIdentifier: "com.samuelsaid.t3code.mobile.dev",
+    androidPackage: "com.samuelsaid.t3code.mobile.dev",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
-    appName: "T3 Code Preview",
-    scheme: "t3code-preview",
-    iosBundleIdentifier: "com.t3tools.t3code.preview",
-    androidPackage: "com.t3tools.t3code.preview",
-    relyingParty: "clerk.t3.codes",
+    appName: "T3 Code (Samuel) Preview",
+    scheme: "t3code-samuel-preview",
+    iosBundleIdentifier: "com.samuelsaid.t3code.mobile.preview",
+    androidPackage: "com.samuelsaid.t3code.mobile.preview",
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "T3 Code",
-    scheme: "t3code",
-    iosBundleIdentifier: "com.t3tools.t3code",
-    androidPackage: "com.t3tools.t3code",
-    relyingParty: "clerk.t3.codes",
-    assets: RELEASE_ASSETS,
+    appName: "T3 Code (Samuel)",
+    scheme: "t3code-samuel",
+    iosBundleIdentifier: "com.samuelsaid.t3code.mobile",
+    androidPackage: "com.samuelsaid.t3code.mobile",
+    // The nightly artwork makes the fork visibly distinct in TestFlight and
+    // on-device without adding another fork-only asset pipeline.
+    assets: PREVIEW_ASSETS,
   },
 } as const;
 
@@ -111,34 +118,13 @@ const dmSansFonts = {
   bold: "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf",
 } as const;
 
-const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
-  "expo-widgets",
-  {
-    bundleIdentifier: `${iosBundleIdentifier}.widgets`,
-    groupIdentifier: `group.${iosBundleIdentifier}`,
-    enablePushNotifications: true,
-    // Agent activity can update many times an hour; without the
-    // frequent-updates entitlement iOS throttles the update budget sooner.
-    frequentUpdates: true,
-    widgets: [
-      {
-        name: "AgentActivity",
-        displayName: "Agent Activity",
-        description: "Shows the current state of active T3 Code agents.",
-        supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
-      },
-    ],
-  },
-];
-
 const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   "expo-sharing",
   {
     ios: {
-      // Personal Teams cannot sign App Groups or extension targets. Keep the
-      // reduced-capability local build usable while release builds expose the
-      // real system share target.
-      enabled: !isIosPersonalTeamBuild,
+      // The first Samuel TestFlight build has one signing target. Sharing can
+      // be restored after its extension and App Group are owned by the fork.
+      enabled: false,
       extensionBundleIdentifier: `${iosBundleIdentifier}.sharing`,
       appGroupId: `group.${iosBundleIdentifier}`,
       activationRule: {
@@ -161,7 +147,7 @@ const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
 
 const config: ExpoConfig = {
   name: variant.appName,
-  slug: "t3-code",
+  slug: "t3-code-samuel",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
   version: "1.0.4",
@@ -175,12 +161,14 @@ const config: ExpoConfig = {
   orientation: "portrait",
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
-  updates: {
-    enabled: true,
-    url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
-    checkAutomatically: "ON_LOAD",
-    fallbackToCacheTimeout: 0,
-  },
+  updates: samuelEasProjectId
+    ? {
+        enabled: true,
+        url: `https://u.expo.dev/${samuelEasProjectId}`,
+        checkAutomatically: "ON_LOAD",
+        fallbackToCacheTimeout: 0,
+      }
+    : { enabled: false },
   ios: {
     icon: variant.assets.iosIcon,
     supportsTablet: true,
@@ -188,14 +176,7 @@ const config: ExpoConfig = {
     // showcase capture build requires full screen (see infoPlist below).
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
-    // Pin code signing to the T3 Tools team so non-interactive `expo run:ios`
-    // does not fall back to a personal team (which cannot sign app groups,
-    // Sign in with Apple, or push notification entitlements).
-    appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-    ],
+    ...(samuelAppleTeamId ? { appleTeamId: samuelAppleTeamId } : {}),
     infoPlist: {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
@@ -264,9 +245,11 @@ const config: ExpoConfig = {
     ],
     "expo-secure-store",
     "expo-sqlite",
-    ...(isIosPersonalTeamBuild
-      ? [sharingPlugin]
-      : ["./plugins/withShareExtensionDisplayName.cjs", sharingPlugin]),
+    sharingPlugin,
+    // This first fork release deliberately has no APNs, Apple sign-in, Live
+    // Activity, widget, or App Group entitlement. Register this before plugins
+    // which might add one because same-type Expo mods execute in reverse order.
+    "./plugins/withoutIosPersonalTeamCapabilities.cjs",
     [
       "expo-notifications",
       {
@@ -275,9 +258,7 @@ const config: ExpoConfig = {
         mode: APP_VARIANT === "development" ? "development" : "production",
       },
     ],
-    // appleSignIn must be gated here: withoutIosPersonalTeamCapabilities.cjs runs before
-    // plugins earlier in this array, so it cannot strip the entitlement Clerk would add.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: false }],
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -329,12 +310,6 @@ const config: ExpoConfig = {
       },
     ],
     "./plugins/withIosCocoaPodsUuidCache.cjs",
-    // Must be listed BEFORE expo-widgets: same-type mods run last-registered-
-    // first, so registering earlier makes this plugin's mods run AFTER
-    // expo-widgets' — its dangerous mod wipes ios/ExpoWidgetsTarget/ (which
-    // would delete the asset catalog) and its xcodeproj mod creates the widget
-    // target (which must exist before the compile phase can be attached).
-    ...(!isIosPersonalTeamBuild ? ["./plugins/withWidgetLogoAsset.cjs", widgetsPlugin] : []),
     "./plugins/withIosSceneLifecycle.cjs",
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
@@ -342,11 +317,12 @@ const config: ExpoConfig = {
     "./plugins/withAndroidModernAlertDialog.cjs",
     "./plugins/withAndroidPredictiveBackCompat.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
-    ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
   ],
   extra: {
     appVariant: APP_VARIANT,
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
+    agentAwarenessPushSupported: false,
+    iosShareExtensionSupported: false,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
     },
@@ -368,11 +344,9 @@ const config: ExpoConfig = {
       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
     },
-    eas: {
-      projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
-    },
+    ...(samuelEasProjectId ? { eas: { projectId: samuelEasProjectId } } : {}),
   },
-  owner: "pingdotgg",
+  ...(samuelEasOwner ? { owner: samuelEasOwner } : {}),
 };
 
 export default config;

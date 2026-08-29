@@ -9,14 +9,14 @@ import { SymbolView } from "../../components/AppSymbol";
  * list. Other platforms render children unchanged.
  */
 export function AndroidHomeFabLayout(props: {
-  readonly onStartNewTask: () => void;
+  readonly onStartNewTask?: () => void;
   readonly children: ReactNode;
 }) {
-  if (Platform.OS !== "android") {
+  if (Platform.OS !== "android" || props.onStartNewTask === undefined) {
     return <>{props.children}</>;
   }
 
-  return <AndroidHomeFab {...props} />;
+  return <AndroidHomeFab onStartNewTask={props.onStartNewTask}>{props.children}</AndroidHomeFab>;
 }
 
 function AndroidHomeFab(props: {
