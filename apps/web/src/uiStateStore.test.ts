@@ -12,6 +12,8 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
+  setLastAgentThreadKey,
+  setLastThreadRouteTarget,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -23,6 +25,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    lastAgentThreadKey: null,
+    lastThreadRouteTarget: null,
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -144,6 +148,25 @@ describe("uiStateStore pure functions", () => {
       defaultAdvertisedEndpointKey: null,
     });
   });
+
+  it("stores the last opened Agent Chat by scoped thread key", () => {
+    const next = setLastAgentThreadKey(makeUiState(), "environment:agent-1");
+
+    expect(next.lastAgentThreadKey).toBe("environment:agent-1");
+    expect(setLastAgentThreadKey(next, "environment:agent-1")).toBe(next);
+    expect(setLastAgentThreadKey(next, "").lastAgentThreadKey).toBeNull();
+  });
+
+  it("stores the last normal thread route without rewriting equal targets", () => {
+    const target = { kind: "server" as const, environmentId: "environment", threadId: "thread-1" };
+    const next = setLastThreadRouteTarget(makeUiState(), target);
+
+    expect(next.lastThreadRouteTarget).toEqual(target);
+    expect(setLastThreadRouteTarget(next, { ...target })).toBe(next);
+    expect(
+      setLastThreadRouteTarget(next, { kind: "draft", draftId: "draft-1" }).lastThreadRouteTarget,
+    ).toEqual({ kind: "draft", draftId: "draft-1" });
+  });
 });
 
 describe("parsePersistedState", () => {
@@ -166,6 +189,12 @@ describe("parsePersistedState", () => {
           "turn-2": true,
         },
       },
+      lastAgentThreadKey: "environment:agent-1",
+      lastThreadRouteTarget: {
+        kind: "server",
+        environmentId: "environment",
+        threadId: "thread-1",
+      },
     });
 
     expect(parsed).toEqual({
@@ -182,6 +211,12 @@ describe("parsePersistedState", () => {
           "turn-1": false,
           "turn-2": true,
         },
+      },
+      lastAgentThreadKey: "environment:agent-1",
+      lastThreadRouteTarget: {
+        kind: "server",
+        environmentId: "environment",
+        threadId: "thread-1",
       },
     });
   });
@@ -280,6 +315,8 @@ describe("uiStateStore persistence", () => {
         },
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      lastAgentThreadKey: "environment:agent-1",
+      lastThreadRouteTarget: { kind: "draft", draftId: "draft-1" },
     });
 
     persistState(state);
@@ -303,6 +340,8 @@ describe("uiStateStore persistence", () => {
           "turn-2": true,
         },
       },
+      lastAgentThreadKey: "environment:agent-1",
+      lastThreadRouteTarget: { kind: "draft", draftId: "draft-1" },
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

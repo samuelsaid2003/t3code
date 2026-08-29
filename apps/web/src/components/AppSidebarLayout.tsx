@@ -18,6 +18,7 @@ import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../ho
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { AgentsSidebarNav } from "./agents/AgentsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import {
   resolveSidebarStageFocusRingOffsetClass,
@@ -146,6 +147,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // sidebar is active.
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  const isOnAgents = pathname === "/agents" || pathname.startsWith("/agents/");
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -235,10 +237,15 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <SidebarChromeHeader isElectron={isElectron} />
               <SettingsSidebarNav pathname={pathname} />
             </>
-          ) : legacySidebarEnabled ? (
-            <LegacyThreadSidebar />
           ) : (
-            <ThreadSidebar />
+            <>
+              <div className={isOnAgents ? "hidden" : "contents"}>
+                {legacySidebarEnabled ? <LegacyThreadSidebar /> : <ThreadSidebar />}
+              </div>
+              <div className={isOnAgents ? "contents" : "hidden"}>
+                <AgentsSidebarNav />
+              </div>
+            </>
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>

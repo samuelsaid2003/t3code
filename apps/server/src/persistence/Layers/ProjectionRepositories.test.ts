@@ -79,6 +79,10 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       yield* threads.upsert({
         threadId: ThreadId.make("thread-null-options"),
         projectId: ProjectId.make("project-null-options"),
+        kind: "standard",
+        agentProfile: null,
+        agentRoutines: [],
+        agentRuns: [],
         title: "Null options thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),
@@ -143,6 +147,10 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       yield* threads.upsert({
         threadId: ThreadId.make("thread-settled"),
         projectId: ProjectId.make("project-1"),
+        kind: "standard",
+        agentProfile: null,
+        agentRoutines: [],
+        agentRuns: [],
         title: "Settled thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -219,6 +227,10 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       yield* threads.upsert({
         threadId: ThreadId.make("thread-linked-pr"),
         projectId: ProjectId.make("project-linked-pr"),
+        kind: "standard",
+        agentProfile: null,
+        agentRoutines: [],
+        agentRuns: [],
         title: "Linked pull request",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

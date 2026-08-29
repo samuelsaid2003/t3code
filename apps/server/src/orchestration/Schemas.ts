@@ -3,6 +3,12 @@ import {
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
   ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
   ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
+  ThreadAgentProfileUpdatedPayload as ContractsThreadAgentProfileUpdatedPayloadSchema,
+  ThreadAgentRoutineUpsertedPayload as ContractsThreadAgentRoutineUpsertedPayloadSchema,
+  ThreadAgentRoutineDeletedPayload as ContractsThreadAgentRoutineDeletedPayloadSchema,
+  ThreadAgentRunRequestedPayload as ContractsThreadAgentRunRequestedPayloadSchema,
+  ThreadAgentRunCompletedPayload as ContractsThreadAgentRunCompletedPayloadSchema,
+  ThreadAgentRunAttentionRequestedPayload as ContractsThreadAgentRunAttentionRequestedPayloadSchema,
   ThreadArchivedPayload as ContractsThreadArchivedPayloadSchema,
   ThreadSettledPayload as ContractsThreadSettledPayloadSchema,
   ThreadMetaUpdatedPayload as ContractsThreadMetaUpdatedPayloadSchema,
@@ -35,6 +41,13 @@ export const ProjectMetaUpdatedPayload = ContractsProjectMetaUpdatedPayloadSchem
 export const ProjectDeletedPayload = ContractsProjectDeletedPayloadSchema;
 
 export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
+export const ThreadAgentProfileUpdatedPayload = ContractsThreadAgentProfileUpdatedPayloadSchema;
+export const ThreadAgentRoutineUpsertedPayload = ContractsThreadAgentRoutineUpsertedPayloadSchema;
+export const ThreadAgentRoutineDeletedPayload = ContractsThreadAgentRoutineDeletedPayloadSchema;
+export const ThreadAgentRunRequestedPayload = ContractsThreadAgentRunRequestedPayloadSchema;
+export const ThreadAgentRunCompletedPayload = ContractsThreadAgentRunCompletedPayloadSchema;
+export const ThreadAgentRunAttentionRequestedPayload =
+  ContractsThreadAgentRunAttentionRequestedPayloadSchema;
 export const ThreadArchivedPayload = ContractsThreadArchivedPayloadSchema;
 export const ThreadSettledPayload = ContractsThreadSettledPayloadSchema;
 export const ThreadMetaUpdatedPayload = ContractsThreadMetaUpdatedPayloadSchema;

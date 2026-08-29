@@ -1,7 +1,9 @@
 import {
   ArrowLeftIcon,
+  BotIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
+  MessageSquareIcon,
   RefreshCwIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -12,6 +14,7 @@ import { memo, useCallback, useRef, useState } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { primaryServerProvidersAtom, serverEnvironment } from "../../state/server";
@@ -156,6 +159,64 @@ function SidebarUtilityItem({
   );
 }
 
+export const SidebarModeToggle = memo(function SidebarModeToggle({
+  mode,
+  onSelect,
+}: {
+  mode: "threads" | "agents";
+  onSelect: () => void;
+}) {
+  if (!isElectron) return null;
+
+  const items = [
+    {
+      mode: "threads" as const,
+      label: "Threads",
+      icon: <MessageSquareIcon />,
+    },
+    {
+      mode: "agents" as const,
+      label: "Agent Chats",
+      icon: <BotIcon />,
+    },
+  ];
+
+  return (
+    <div
+      aria-label="Sidebar view"
+      className="flex h-8 shrink-0 items-center gap-0.5 rounded-lg border border-sidebar-border/65 bg-sidebar-control-surface/70 p-0.5 shadow-xs"
+      role="group"
+    >
+      {items.map((item) => {
+        const active = item.mode === mode;
+        return (
+          <Tooltip key={item.mode}>
+            <TooltipTrigger
+              render={
+                <button
+                  aria-label={item.label}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex size-6.5 cursor-pointer items-center justify-center rounded-md outline-hidden transition-colors [&_svg]:size-3.5",
+                    active
+                      ? "bg-sidebar-row-active text-sidebar-foreground shadow-sm ring-1 ring-sidebar-border/65"
+                      : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                  )}
+                  onClick={active ? undefined : onSelect}
+                  type="button"
+                >
+                  {item.icon}
+                </button>
+              }
+            />
+            <TooltipPopup side="bottom">{item.label}</TooltipPopup>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+});
+
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
@@ -164,11 +225,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     select: (location) =>
       /^\/settings(?:\/|$)/.test(location.pathname)
         ? "settings"
-        : location.pathname === "/usage"
-          ? "usage"
-          : location.pathname === "/pull-requests"
-            ? "pull-requests"
-            : null,
+        : /^\/agents(?:\/|$)/.test(location.pathname)
+          ? "agents"
+          : location.pathname === "/usage"
+            ? "usage"
+            : location.pathname === "/pull-requests"
+              ? "pull-requests"
+              : null,
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -208,7 +271,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   return (
     <SidebarMenu className="flex-row items-center">
-      {currentFooterPage ? (
+      {currentFooterPage && currentFooterPage !== "agents" ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />

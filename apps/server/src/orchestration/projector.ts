@@ -15,6 +15,12 @@ import {
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
+  ThreadAgentProfileUpdatedPayload,
+  ThreadAgentRoutineUpsertedPayload,
+  ThreadAgentRoutineDeletedPayload,
+  ThreadAgentRunRequestedPayload,
+  ThreadAgentRunCompletedPayload,
+  ThreadAgentRunAttentionRequestedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
@@ -38,6 +44,7 @@ import {
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
+const MAX_AGENT_RUNS = 100;
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;
@@ -291,6 +298,10 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
+            kind: payload.kind ?? "standard",
+            agentProfile: payload.agentProfile ?? null,
+            agentRoutines: [],
+            agentRuns: [],
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -323,6 +334,152 @@ export function projectEvent(
             : [...nextBase.threads, thread],
         };
       });
+
+    case "thread.agent-profile-updated":
+      return decodeForEvent(
+        ThreadAgentProfileUpdatedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            agentProfile: payload.profile,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.agent-routine-upserted":
+      return decodeForEvent(
+        ThreadAgentRoutineUpsertedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          const routines = thread?.agentRoutines ?? [];
+          const exists = routines.some((entry) => entry.id === payload.routine.id);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              agentRoutines: exists
+                ? routines.map((entry) =>
+                    entry.id === payload.routine.id ? payload.routine : entry,
+                  )
+                : [...routines, payload.routine],
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.agent-routine-deleted":
+      return decodeForEvent(
+        ThreadAgentRoutineDeletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              agentRoutines: (thread?.agentRoutines ?? []).filter(
+                (entry) => entry.id !== payload.routineId,
+              ),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.agent-run-requested":
+      return decodeForEvent(
+        ThreadAgentRunRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          const routines = thread?.agentRoutines ?? [];
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              agentRoutines: routines.map((entry) =>
+                entry.id === payload.routine.id ? payload.routine : entry,
+              ),
+              agentRuns: [...(thread?.agentRuns ?? []), payload.run].slice(-MAX_AGENT_RUNS),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.agent-run-completed":
+      return decodeForEvent(
+        ThreadAgentRunCompletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              agentRoutines: (thread?.agentRoutines ?? []).map((entry) =>
+                entry.id === payload.routineId
+                  ? { ...entry, lastStatus: payload.status, updatedAt: payload.updatedAt }
+                  : entry,
+              ),
+              agentRuns: (thread?.agentRuns ?? []).map((entry) =>
+                entry.id === payload.runId
+                  ? {
+                      ...entry,
+                      status: payload.status,
+                      completedAt: payload.completedAt,
+                      summary: payload.summary ?? null,
+                      error: payload.error ?? null,
+                    }
+                  : entry,
+              ),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.agent-run-attention-requested":
+      return decodeForEvent(
+        ThreadAgentRunAttentionRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              agentRuns: (thread?.agentRuns ?? []).map((entry) =>
+                entry.id === payload.runId
+                  ? {
+                      ...entry,
+                      attentionAt: payload.requestedAt,
+                      attentionSummary: payload.summary,
+                    }
+                  : entry,
+              ),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.deleted":
       return decodeForEvent(ThreadDeletedPayload, event.payload, event.type, "payload").pipe(
@@ -522,6 +679,7 @@ export function projectEvent(
             id: payload.messageId,
             role: payload.role,
             text: payload.text,
+            ...(payload.routineRunId !== undefined ? { routineRunId: payload.routineRunId } : {}),
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
@@ -546,6 +704,9 @@ export function projectEvent(
                     streaming: message.streaming,
                     updatedAt: message.updatedAt,
                     turnId: message.turnId,
+                    ...(message.routineRunId !== undefined
+                      ? { routineRunId: message.routineRunId }
+                      : {}),
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),

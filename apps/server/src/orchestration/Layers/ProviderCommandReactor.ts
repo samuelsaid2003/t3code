@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type OrchestrationThread,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
@@ -482,6 +483,10 @@ const make = Effect.gen(function* () {
     return yield* projectionSnapshotQuery
       .getThreadDetailById(threadId)
       .pipe(Effect.map(Option.getOrUndefined));
+  });
+
+  const resolveAgentInstructions = Effect.fnUntraced(function* (thread: OrchestrationThread) {
+    return thread.kind === "agent" ? thread.agentProfile?.instructions : undefined;
   });
 
   const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
@@ -1133,6 +1138,12 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    const agentInstructions = yield* resolveAgentInstructions(thread);
+    const providerMessageText =
+      agentInstructions === undefined
+        ? message.text
+        : `<agent_instructions>\n${agentInstructions}\n</agent_instructions>\n\n${message.text}`;
+
     yield* ensureThreadWorktree(thread);
 
     const isFirstUserMessageTurn =
@@ -1204,7 +1215,7 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      messageText: providerMessageText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

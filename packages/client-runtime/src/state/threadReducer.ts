@@ -80,6 +80,10 @@ export function applyThreadDetailEvent(
         thread: {
           id: event.payload.threadId,
           projectId: event.payload.projectId,
+          kind: event.payload.kind ?? "standard",
+          agentProfile: event.payload.agentProfile ?? null,
+          agentRoutines: [],
+          agentRuns: [],
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,
@@ -101,6 +105,105 @@ export function applyThreadDetailEvent(
           activities: [],
           checkpoints: [],
           session: null,
+        },
+      };
+
+    case "thread.agent-profile-updated":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentProfile: event.payload.profile,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.agent-routine-upserted": {
+      const routines = thread.agentRoutines ?? [];
+      const exists = routines.some((routine) => routine.id === event.payload.routine.id);
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentRoutines: exists
+            ? routines.map((routine) =>
+                routine.id === event.payload.routine.id ? event.payload.routine : routine,
+              )
+            : [...routines, event.payload.routine],
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+    }
+
+    case "thread.agent-routine-deleted":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentRoutines: (thread.agentRoutines ?? []).filter(
+            (routine) => routine.id !== event.payload.routineId,
+          ),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.agent-run-requested":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentRoutines: (thread.agentRoutines ?? []).map((routine) =>
+            routine.id === event.payload.routine.id ? event.payload.routine : routine,
+          ),
+          agentRuns: [...(thread.agentRuns ?? []), event.payload.run].slice(-100),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.agent-run-completed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentRoutines: (thread.agentRoutines ?? []).map((routine) =>
+            routine.id === event.payload.routineId
+              ? {
+                  ...routine,
+                  lastStatus: event.payload.status,
+                  updatedAt: event.payload.updatedAt,
+                }
+              : routine,
+          ),
+          agentRuns: (thread.agentRuns ?? []).map((run) =>
+            run.id === event.payload.runId
+              ? {
+                  ...run,
+                  status: event.payload.status,
+                  completedAt: event.payload.completedAt,
+                  summary: event.payload.summary ?? null,
+                  error: event.payload.error ?? null,
+                }
+              : run,
+          ),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.agent-run-attention-requested":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentRuns: (thread.agentRuns ?? []).map((run) =>
+            run.id === event.payload.runId
+              ? {
+                  ...run,
+                  attentionAt: event.payload.requestedAt,
+                  attentionSummary: event.payload.summary,
+                }
+              : run,
+          ),
+          updatedAt: event.payload.updatedAt,
         },
       };
 
@@ -297,6 +400,9 @@ export function applyThreadDetailEvent(
         id: event.payload.messageId,
         role: event.payload.role,
         text: event.payload.text,
+        ...(event.payload.routineRunId !== undefined
+          ? { routineRunId: event.payload.routineRunId }
+          : {}),
         ...(event.payload.attachments !== undefined
           ? { attachments: event.payload.attachments }
           : {}),
@@ -320,6 +426,9 @@ export function applyThreadDetailEvent(
                       : entry.text,
                   streaming: message.streaming,
                   ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                  ...(message.routineRunId !== undefined
+                    ? { routineRunId: message.routineRunId }
+                    : {}),
                   ...(message.streaming ? {} : { updatedAt: message.updatedAt }),
                   ...(message.attachments !== undefined
                     ? { attachments: message.attachments }

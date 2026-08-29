@@ -32,6 +32,10 @@ export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
 export type DeleteProjectInput = CommandInput<"project.delete">;
 export type CreateThreadInput = CommandInput<"thread.create">;
+export type UpdateAgentProfileInput = CommandInput<"thread.agent-profile.update">;
+export type UpsertAgentRoutineInput = CommandInput<"thread.agent-routine.upsert">;
+export type DeleteAgentRoutineInput = CommandInput<"thread.agent-routine.delete">;
+export type RequestAgentRunInput = CommandInput<"thread.agent-run.request">;
 export type DeleteThreadInput = CommandInput<"thread.delete">;
 export type ArchiveThreadInput = CommandInput<"thread.archive">;
 export type UnarchiveThreadInput = CommandInput<"thread.unarchive">;
@@ -125,6 +129,48 @@ export const createThread: (input: CreateThreadInput) => CommandEffect = Effect.
   return yield* dispatch({
     ...input,
     type: "thread.create",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const updateAgentProfile: (input: UpdateAgentProfileInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.updateAgentProfile",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.agent-profile.update",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const upsertAgentRoutine: (input: UpsertAgentRoutineInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.upsertAgentRoutine",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.agent-routine.upsert",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const deleteAgentRoutine: (input: DeleteAgentRoutineInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.deleteAgentRoutine",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.agent-routine.delete",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const requestAgentRun: (input: RequestAgentRunInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.requestAgentRun",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.agent-run.request",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
   });

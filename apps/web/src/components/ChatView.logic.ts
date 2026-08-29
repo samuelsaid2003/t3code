@@ -690,3 +690,9 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
   );
 }
+
+export function visibleChatTimelineMessages(
+  messages: ReadonlyArray<ChatMessage>,
+): ReadonlyArray<ChatMessage> {
+  return messages.filter((message) => message.routineRunId === undefined);
+}

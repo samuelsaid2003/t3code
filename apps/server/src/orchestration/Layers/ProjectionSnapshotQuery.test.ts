@@ -297,6 +297,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
+          kind: "standard",
+          agentProfile: null,
+          agentRoutines: [],
+          agentRuns: [],
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -423,6 +427,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
+          kind: "standard",
+          agentProfile: null,
+          agentRoutines: [],
+          agentRuns: [],
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

@@ -510,6 +510,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "agents":
       return "Agents";
+    case "agent-profile":
+      return "Agent";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -594,6 +596,8 @@ function SurfaceIcon({
       return <GitPullRequest className={cn("size-3 shrink-0", toneClassName)} />;
     }
     case "agents":
+      return <Bot className="size-3 shrink-0" />;
+    case "agent-profile":
       return <Bot className="size-3 shrink-0" />;
   }
 }

@@ -21,6 +21,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { nextAgentRoutineOccurrence } from "./agentSchedule.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -360,6 +361,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const threadKind = command.kind ?? "standard";
+      if (threadKind === "agent" && command.agentProfile == null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Agent threads require an agent profile.",
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -371,6 +379,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
+          kind: threadKind,
+          agentProfile: command.agentProfile ?? null,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -378,6 +388,176 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           branch: command.branch,
           worktreePath: command.worktreePath,
           createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.agent-profile.update": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.kind !== "agent") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is not an agent chat.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-profile-updated",
+        payload: {
+          threadId: command.threadId,
+          profile: command.profile,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.agent-routine.upsert": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.kind !== "agent") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is not an agent chat.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const existing = thread.agentRoutines?.find((routine) => routine.id === command.routine.id);
+      const nextRunAt = command.routine.enabled
+        ? nextAgentRoutineOccurrence(command.routine.schedule, occurredAt)
+        : null;
+      if (command.routine.enabled && nextRunAt === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "The routine schedule has no future occurrence.",
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-routine-upserted",
+        payload: {
+          threadId: command.threadId,
+          routine: {
+            ...command.routine,
+            nextRunAt,
+            lastRunAt: existing?.lastRunAt ?? null,
+            lastStatus: existing?.lastStatus ?? null,
+            createdAt: existing?.createdAt ?? occurredAt,
+            updatedAt: occurredAt,
+          },
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.agent-routine.delete": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (!(thread.agentRoutines ?? []).some((routine) => routine.id === command.routineId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Routine '${command.routineId}' does not exist.`,
+        });
+      }
+      if (
+        (thread.agentRuns ?? []).some(
+          (run) => run.routineId === command.routineId && run.status === "running",
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Routine '${command.routineId}' has a running execution.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-routine-deleted",
+        payload: {
+          threadId: command.threadId,
+          routineId: command.routineId,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.agent-run.request": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const routine = thread.agentRoutines?.find((entry) => entry.id === command.routineId);
+      if (thread.kind !== "agent" || routine === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Routine '${command.routineId}' does not exist on agent '${command.threadId}'.`,
+        });
+      }
+      if ((thread.agentRuns ?? []).some((run) => run.id === command.runId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Run '${command.runId}' already exists.`,
+        });
+      }
+      const nextRunAt =
+        routine.enabled && routine.schedule.kind !== "once"
+          ? nextAgentRoutineOccurrence(routine.schedule, command.scheduledFor)
+          : null;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-run-requested",
+        payload: {
+          threadId: command.threadId,
+          routine: {
+            ...routine,
+            enabled: routine.schedule.kind === "once" ? false : routine.enabled,
+            nextRunAt,
+            lastRunAt: command.createdAt,
+            updatedAt: command.createdAt,
+          },
+          run: {
+            id: command.runId,
+            routineId: command.routineId,
+            messageId: command.messageId,
+            status: "running",
+            scheduledFor: command.scheduledFor,
+            startedAt: command.createdAt,
+            completedAt: null,
+            summary: null,
+            error: null,
+          },
           updatedAt: command.createdAt,
         },
       };
@@ -969,6 +1149,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.message.messageId,
           role: "user",
           text: command.message.text,
+          ...(command.message.routineRunId !== undefined
+            ? { routineRunId: command.message.routineRunId }
+            : {}),
           attachments: command.message.attachments,
           turnId: null,
           streaming: false,
@@ -1403,6 +1586,76 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [unsettledEvent, activityAppendedEvent];
+    }
+
+    case "thread.agent-run.complete": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const run = thread.agentRuns?.find((entry) => entry.id === command.runId);
+      if (run === undefined || run.routineId !== command.routineId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Run '${command.runId}' does not exist on agent '${command.threadId}'.`,
+        });
+      }
+      if (run.status !== "running") {
+        return [];
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.completedAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-run-completed",
+        payload: {
+          threadId: command.threadId,
+          routineId: command.routineId,
+          runId: command.runId,
+          status: command.status,
+          ...(command.summary !== undefined ? { summary: command.summary } : {}),
+          ...(command.error !== undefined ? { error: command.error } : {}),
+          completedAt: command.completedAt,
+          updatedAt: command.completedAt,
+        },
+      };
+    }
+
+    case "thread.agent-run.attention": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const run = thread.agentRuns?.find((entry) => entry.id === command.runId);
+      if (run === undefined || run.routineId !== command.routineId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Run '${command.runId}' does not exist on agent '${command.threadId}'.`,
+        });
+      }
+      if (run.status !== "running") return [];
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.requestedAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-run-attention-requested",
+        payload: {
+          threadId: command.threadId,
+          routineId: command.routineId,
+          runId: command.runId,
+          summary: command.summary,
+          requestedAt: command.requestedAt,
+          updatedAt: command.requestedAt,
+        },
+      };
     }
 
     default: {

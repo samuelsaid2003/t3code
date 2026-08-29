@@ -214,6 +214,28 @@ describe("environment entity projections", () => {
     const shell = {
       ...THREAD_SHELL,
       environmentId: ENVIRONMENT_ID,
+      kind: "agent" as const,
+      agentProfile: { instructions: "Current instructions" },
+      agentRoutines: [
+        {
+          id: "routine-1",
+          name: "Current routine",
+          prompt: "Run the current check",
+          enabled: true,
+          schedule: {
+            kind: "daily" as const,
+            hour: 9,
+            minute: 0,
+            timeZone: "Australia/Melbourne",
+          },
+          nextRunAt: "2026-06-02T23:00:00.000Z",
+          lastRunAt: null,
+          lastStatus: null,
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:01:00.000Z",
+        },
+      ],
+      agentRuns: [],
       title: "Current thread",
       branch: "current-branch",
       worktreePath: "/repo/current-worktree",
@@ -225,6 +247,9 @@ describe("environment entity projections", () => {
       title: "Current thread",
       branch: "current-branch",
       worktreePath: "/repo/current-worktree",
+      kind: "agent",
+      agentProfile: { instructions: "Current instructions" },
+      agentRoutines: [{ name: "Current routine" }],
     });
     expect(merged?.messages).toBe(messages);
   });

@@ -8,6 +8,7 @@ import {
   type ProjectScript,
   type ProjectId,
   type ProviderApprovalDecision,
+  type ProviderOptionSelection,
   type PreviewAnnotationPayload,
   ProviderInstanceId,
   type ServerProvider,
@@ -167,6 +168,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import { AgentProfilePanel } from "./agents/AgentProfilePanel";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
@@ -363,6 +365,7 @@ import {
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   waitForStartedServerThread,
+  visibleChatTimelineMessages,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -1408,6 +1411,9 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerDraftProviderModelOptions = useComposerDraftStore(
+    (store) => store.setProviderModelOptions,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -2701,7 +2707,7 @@ function ChatViewContent(props: ChatViewProps) {
     };
   }, [attachmentPreviewHandoffByMessageId, clearAttachmentPreviewHandoff, displayServerMessages]);
   const timelineMessages = useMemo(() => {
-    const messages = displayServerMessages;
+    const messages = visibleChatTimelineMessages(displayServerMessages);
     const serverMessagesWithPreviewHandoff =
       Object.keys(attachmentPreviewHandoffByMessageId).length === 0
         ? messages
@@ -3496,16 +3502,40 @@ function ChatViewContent(props: ChatViewProps) {
       setComposerDraftRuntimeMode(composerDraftTarget, mode);
       if (isLocalDraftThread) {
         setDraftThreadContext(composerDraftTarget, { runtimeMode: mode });
+      } else if (isServerThread && activeThread?.kind === "agent") {
+        void setThreadRuntimeMode({
+          environmentId: activeThread.environmentId,
+          input: {
+            threadId: activeThread.id,
+            runtimeMode: mode,
+            createdAt: new Date().toISOString(),
+          },
+        }).then((result) => {
+          if (result._tag !== "Failure") return;
+          setComposerDraftRuntimeMode(composerDraftTarget, activeThread.runtimeMode);
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not change agent access",
+              description:
+                error instanceof Error ? error.message : "The access setting was not saved.",
+            }),
+          );
+        });
       }
       scheduleComposerFocus();
     },
     [
+      activeThread,
       isLocalDraftThread,
+      isServerThread,
       runtimeMode,
       scheduleComposerFocus,
       composerDraftTarget,
       setComposerDraftRuntimeMode,
       setDraftThreadContext,
+      setThreadRuntimeMode,
     ],
   );
 
@@ -3999,6 +4029,24 @@ function ChatViewContent(props: ChatViewProps) {
       updateThreadMetadata,
     ],
   );
+
+  const prepareAgentRoutineRun = useCallback(async (): Promise<string | null> => {
+    if (!activeThread || activeThread.kind !== "agent") return null;
+    const sendContext = composerRef.current?.getSendContext();
+    if (!sendContext?.providerAvailable) {
+      return "The selected provider is not available.";
+    }
+    const result = await persistThreadSettingsForNextTurn({
+      threadId: activeThread.id,
+      createdAt: new Date().toISOString(),
+      modelSelection: sendContext.selectedModelSelection,
+      runtimeMode,
+      interactionMode,
+    });
+    if (result._tag !== "Failure") return null;
+    const error = squashAtomCommandFailure(result);
+    return error instanceof Error ? error.message : "Could not save the agent's run settings.";
+  }, [activeThread, composerRef, interactionMode, persistThreadSettingsForNextTurn, runtimeMode]);
 
   // Debounce *showing* the scroll-to-bottom pill so it doesn't flash during
   // thread switches. LegendList fires scroll events with isAtEnd=false while
@@ -5897,7 +5945,7 @@ function ChatViewContent(props: ChatViewProps) {
 
     let failure: AtomCommandResult<unknown, unknown> | null = null;
     // Auto-title from first message
-    if (isFirstMessage && isServerThread) {
+    if (isFirstMessage && isServerThread && activeThread.kind !== "agent") {
       const titleResult = await updateThreadMetadata({
         environmentId,
         input: {
@@ -6647,7 +6695,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
 
   const onProviderModelSelect = useCallback(
-    (instanceId: ProviderInstanceId, model: string) => {
+    async (instanceId: ProviderInstanceId, model: string) => {
       if (!activeThread) return;
       // Look up the configured instance so model normalization and custom
       // model lookup stay scoped to that exact instance. Unknown instance ids
@@ -6710,16 +6758,86 @@ function ChatViewContent(props: ChatViewProps) {
         nextModelSelection,
       );
       setStickyComposerModelSelection(nextModelSelection);
+      if (isServerThread && activeThread.kind === "agent") {
+        const result = await updateThreadMetadata({
+          environmentId: activeThread.environmentId,
+          input: {
+            threadId: activeThread.id,
+            modelSelection: nextModelSelection,
+          },
+        });
+        if (result._tag === "Failure") {
+          setComposerDraftModelSelection(
+            scopeThreadRef(activeThread.environmentId, activeThread.id),
+            activeThread.modelSelection,
+          );
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not change agent model",
+              description:
+                error instanceof Error ? error.message : "The model change was not saved.",
+            }),
+          );
+        }
+      }
       scheduleComposerFocus();
     },
     [
       activeThread,
+      isServerThread,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,
       setStickyComposerModelSelection,
       providerStatuses,
       settings,
+      updateThreadMetadata,
+    ],
+  );
+  const onProviderModelOptionsChange = useCallback(
+    (input: {
+      provider: ProviderDriverKind;
+      instanceId: ProviderInstanceId;
+      model: string;
+      options: ReadonlyArray<ProviderOptionSelection> | undefined;
+    }) => {
+      if (!activeThread || activeThread.kind !== "agent") return;
+      const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+      setComposerDraftProviderModelOptions(threadRef, input.provider, input.options, {
+        instanceId: input.instanceId,
+        model: input.model,
+        persistSticky: true,
+      });
+      const nextModelSelection = createModelSelection(input.instanceId, input.model, input.options);
+      void updateThreadMetadata({
+        environmentId: activeThread.environmentId,
+        input: {
+          threadId: activeThread.id,
+          modelSelection: nextModelSelection,
+        },
+      }).then((result) => {
+        if (result._tag !== "Failure") return;
+        setComposerDraftModelSelection(threadRef, activeThread.modelSelection);
+        setStickyComposerModelSelection(activeThread.modelSelection);
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not change agent reasoning",
+            description:
+              error instanceof Error ? error.message : "The reasoning setting was not saved.",
+          }),
+        );
+      });
+    },
+    [
+      activeThread,
+      setComposerDraftModelSelection,
+      setComposerDraftProviderModelOptions,
+      setStickyComposerModelSelection,
+      updateThreadMetadata,
     ],
   );
   const onEnvModeChange = useCallback(
@@ -6928,6 +7046,8 @@ function ChatViewContent(props: ChatViewProps) {
         composerDraftTarget={composerDraftTarget}
         onStateChange={handlePullRequestTabStatusChange}
       />
+    ) : activeRightPanelSurface?.kind === "agent-profile" ? (
+      <AgentProfilePanel threadRef={activeThreadRef} beforeRun={prepareAgentRoutineRun} />
     ) : activeRightPanelSurface?.kind === "agents" ? (
       <AgentsPanel
         model={agentPanelModel}
@@ -7294,6 +7414,9 @@ function ChatViewContent(props: ChatViewProps) {
                               onChangeActivePendingUserInputCustomAnswer
                             }
                             onProviderModelSelect={onProviderModelSelect}
+                            {...(activeThread.kind === "agent"
+                              ? { onProviderModelOptionsChange }
+                              : {})}
                             getModelDisabledReason={getModelDisabledReason}
                             toggleInteractionMode={toggleInteractionMode}
                             handleRuntimeModeChange={handleRuntimeModeChange}

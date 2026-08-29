@@ -1,4 +1,4 @@
-import { MessageId, ThreadId } from "@t3tools/contracts";
+import { AgentRunId, MessageId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -19,6 +19,7 @@ layer("ProjectionThreadMessageRepository", (it) => {
       const messageId = MessageId.make("message-preserve-attachments");
       const createdAt = "2026-02-28T19:00:00.000Z";
       const updatedAt = "2026-02-28T19:00:01.000Z";
+      const routineRunId = AgentRunId.make("run-preserve-marker");
       const persistedAttachments = [
         {
           type: "image" as const,
@@ -35,6 +36,7 @@ layer("ProjectionThreadMessageRepository", (it) => {
         turnId: null,
         role: "user",
         text: "initial",
+        routineRunId,
         attachments: persistedAttachments,
         isStreaming: false,
         createdAt,
@@ -55,12 +57,14 @@ layer("ProjectionThreadMessageRepository", (it) => {
       const rows = yield* repository.listByThreadId({ threadId });
       assert.equal(rows.length, 1);
       assert.equal(rows[0]?.text, "updated");
+      assert.equal(rows[0]?.routineRunId, routineRunId);
       assert.deepEqual(rows[0]?.attachments, persistedAttachments);
 
       const rowById = yield* repository.getByMessageId({ messageId });
       assert.equal(rowById._tag, "Some");
       if (rowById._tag === "Some") {
         assert.equal(rowById.value.text, "updated");
+        assert.equal(rowById.value.routineRunId, routineRunId);
         assert.deepEqual(rowById.value.attachments, persistedAttachments);
       }
     }),

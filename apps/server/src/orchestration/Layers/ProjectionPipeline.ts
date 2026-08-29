@@ -628,6 +628,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
+            kind: event.payload.kind ?? "standard",
+            agentProfile: event.payload.agentProfile ?? null,
+            agentRoutines: [],
+            agentRuns: [],
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -655,6 +659,123 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             deletedAt: null,
           });
           return;
+
+        case "thread.agent-profile-updated": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentProfile: event.payload.profile,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-routine-upserted": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          const exists = existingRow.value.agentRoutines.some(
+            (routine) => routine.id === event.payload.routine.id,
+          );
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentRoutines: exists
+              ? existingRow.value.agentRoutines.map((routine) =>
+                  routine.id === event.payload.routine.id ? event.payload.routine : routine,
+                )
+              : [...existingRow.value.agentRoutines, event.payload.routine],
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-routine-deleted": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentRoutines: existingRow.value.agentRoutines.filter(
+              (routine) => routine.id !== event.payload.routineId,
+            ),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-run-requested": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentRoutines: existingRow.value.agentRoutines.map((routine) =>
+              routine.id === event.payload.routine.id ? event.payload.routine : routine,
+            ),
+            agentRuns: [...existingRow.value.agentRuns, event.payload.run].slice(-100),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-run-completed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentRoutines: existingRow.value.agentRoutines.map((routine) =>
+              routine.id === event.payload.routineId
+                ? {
+                    ...routine,
+                    lastStatus: event.payload.status,
+                    updatedAt: event.payload.updatedAt,
+                  }
+                : routine,
+            ),
+            agentRuns: existingRow.value.agentRuns.map((run) =>
+              run.id === event.payload.runId
+                ? {
+                    ...run,
+                    status: event.payload.status,
+                    completedAt: event.payload.completedAt,
+                    summary: event.payload.summary ?? null,
+                    error: event.payload.error ?? null,
+                  }
+                : run,
+            ),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-run-attention-requested": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentRuns: existingRow.value.agentRuns.map((run) =>
+              run.id === event.payload.runId
+                ? {
+                    ...run,
+                    attentionAt: event.payload.requestedAt,
+                    attentionSummary: event.payload.summary,
+                  }
+                : run,
+            ),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
 
         case "thread.archived": {
           const existingRow = yield* projectionThreadRepository.getById({
@@ -1016,6 +1137,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             turnId: event.payload.turnId,
             role: event.payload.role,
             text: nextText,
+            ...(event.payload.routineRunId !== undefined
+              ? { routineRunId: event.payload.routineRunId }
+              : previousMessage?.routineRunId !== undefined
+                ? { routineRunId: previousMessage.routineRunId }
+                : {}),
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,

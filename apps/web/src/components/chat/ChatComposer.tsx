@@ -5,6 +5,7 @@ import type {
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
   ProviderInteractionMode,
+  ProviderOptionSelection,
   ResolvedKeybindingsConfig,
   RuntimeMode,
   ScopedThreadRef,
@@ -660,6 +661,12 @@ export interface ChatComposerProps {
   ) => void;
 
   onProviderModelSelect: (instanceId: ProviderInstanceId, model: string) => void;
+  onProviderModelOptionsChange?: (input: {
+    provider: ProviderDriverKind;
+    instanceId: ProviderInstanceId;
+    model: string;
+    options: ReadonlyArray<ProviderOptionSelection> | undefined;
+  }) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -738,6 +745,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPreviousActivePendingUserInputQuestion,
     onChangeActivePendingUserInputCustomAnswer,
     onProviderModelSelect,
+    onProviderModelOptionsChange,
     getModelDisabledReason,
     toggleInteractionMode,
     handleRuntimeModeChange,
@@ -1325,8 +1333,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    ...(onProviderModelOptionsChange
+      ? {
+          onModelOptionsChange: (options) =>
+            onProviderModelOptionsChange({
+              provider: selectedProvider,
+              instanceId: selectedInstanceId,
+              model: selectedModel,
+              options,
+            }),
+        }
+      : routeKind === "server"
+        ? { threadRef: routeThreadRef }
+        : draftId
+          ? { draftId }
+          : {}),
     model: selectedModel,
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
@@ -1337,8 +1358,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    ...(onProviderModelOptionsChange
+      ? {
+          onModelOptionsChange: (options) =>
+            onProviderModelOptionsChange({
+              provider: selectedProvider,
+              instanceId: selectedInstanceId,
+              model: selectedModel,
+              options,
+            }),
+        }
+      : routeKind === "server"
+        ? { threadRef: routeThreadRef }
+        : draftId
+          ? { draftId }
+          : {}),
     model: selectedModel,
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],

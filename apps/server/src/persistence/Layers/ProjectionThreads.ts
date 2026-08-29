@@ -14,12 +14,21 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadLinkedPullRequest } from "@t3tools/contracts";
+import {
+  AgentProfile,
+  AgentRoutine,
+  AgentRun,
+  ModelSelection,
+  ThreadLinkedPullRequest,
+} from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    agentProfile: Schema.NullOr(Schema.fromJsonString(AgentProfile)),
+    agentRoutines: Schema.fromJsonString(Schema.Array(AgentRoutine)),
+    agentRuns: Schema.fromJsonString(Schema.Array(AgentRun)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -34,6 +43,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         INSERT INTO projection_threads (
           thread_id,
           project_id,
+          thread_kind,
+          agent_profile_json,
+          agent_routines_json,
+          agent_runs_json,
           title,
           model_selection_json,
           runtime_mode,
@@ -63,6 +76,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         VALUES (
           ${row.threadId},
           ${row.projectId},
+          ${row.kind},
+          ${row.agentProfile === null ? null : JSON.stringify(row.agentProfile)},
+          ${JSON.stringify(row.agentRoutines)},
+          ${JSON.stringify(row.agentRuns)},
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -92,6 +109,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         ON CONFLICT (thread_id)
         DO UPDATE SET
           project_id = excluded.project_id,
+          thread_kind = excluded.thread_kind,
+          agent_profile_json = excluded.agent_profile_json,
+          agent_routines_json = excluded.agent_routines_json,
+          agent_runs_json = excluded.agent_runs_json,
           title = excluded.title,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
@@ -128,6 +149,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          thread_kind AS "kind",
+          agent_profile_json AS "agentProfile",
+          agent_routines_json AS "agentRoutines",
+          agent_runs_json AS "agentRuns",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -166,6 +191,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          thread_kind AS "kind",
+          agent_profile_json AS "agentProfile",
+          agent_routines_json AS "agentRoutines",
+          agent_runs_json AS "agentRuns",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",

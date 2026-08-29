@@ -117,7 +117,17 @@ export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {
 }
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
-  return useAtomValue(environmentThreadShells.threadShellsAtom);
+  const threads = useAtomValue(environmentThreadShells.threadShellsAtom);
+  return useMemo(
+    () => threads.filter((thread) => (thread.kind ?? "standard") === "standard"),
+    [threads],
+  );
+}
+
+/** Desktop Agent Chats live outside the ordinary project-thread navigation. */
+export function useAgentThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
+  const threads = useAtomValue(environmentThreadShells.threadShellsAtom);
+  return useMemo(() => threads.filter((thread) => thread.kind === "agent"), [threads]);
 }
 
 export function useAllEnvironmentShellsBootstrapped(): boolean {
@@ -127,7 +137,11 @@ export function useAllEnvironmentShellsBootstrapped(): boolean {
 export function useThreadShellsForProjectRefs(
   refs: ReadonlyArray<ScopedProjectRef>,
 ): ReadonlyArray<EnvironmentThreadShell> {
-  return useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
+  const threads = useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
+  return useMemo(
+    () => threads.filter((thread) => (thread.kind ?? "standard") === "standard"),
+    [threads],
+  );
 }
 
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {

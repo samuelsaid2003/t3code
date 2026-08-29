@@ -1,4 +1,5 @@
 import {
+  AgentRunId,
   ChatAttachment,
   CheckpointRef,
   IsoDateTime,
@@ -23,6 +24,9 @@ import {
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   ModelSelection,
+  AgentProfile,
+  AgentRoutine,
+  AgentRun,
   ProjectId,
   ThreadLinkedPullRequest,
   ThreadId,
@@ -84,6 +88,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+    routineRunId: Schema.NullOr(AgentRunId),
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
@@ -91,6 +96,9 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    agentProfile: Schema.NullOr(Schema.fromJsonString(AgentProfile)),
+    agentRoutines: Schema.fromJsonString(Schema.Array(AgentRoutine)),
+    agentRuns: Schema.fromJsonString(Schema.Array(AgentRun)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -418,6 +426,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          thread_kind AS "kind",
+          agent_profile_json AS "agentProfile",
+          agent_routines_json AS "agentRoutines",
+          agent_runs_json AS "agentRuns",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -456,6 +468,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          thread_kind AS "kind",
+          agent_profile_json AS "agentProfile",
+          agent_routines_json AS "agentRoutines",
+          agent_runs_json AS "agentRuns",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -496,6 +512,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          thread_kind AS "kind",
+          agent_profile_json AS "agentProfile",
+          agent_routines_json AS "agentRoutines",
+          agent_runs_json AS "agentRuns",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -539,6 +559,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -940,6 +961,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          thread_kind AS "kind",
+          agent_profile_json AS "agentProfile",
+          agent_routines_json AS "agentRoutines",
+          agent_runs_json AS "agentRuns",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -984,6 +1009,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -1227,6 +1253,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -1569,6 +1596,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   id: row.messageId,
                   role: row.role,
                   text: row.text,
+                  ...(row.routineRunId !== null ? { routineRunId: row.routineRunId } : {}),
                   ...(row.attachments !== null ? { attachments: row.attachments } : {}),
                   turnId: row.turnId,
                   streaming: row.isStreaming === 1,
@@ -1698,6 +1726,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => ({
                 id: row.threadId,
                 projectId: row.projectId,
+                kind: row.kind,
+                agentProfile: row.agentProfile,
+                agentRoutines: row.agentRoutines,
+                agentRuns: row.agentRuns,
                 title: row.title,
                 modelSelection: row.modelSelection,
                 runtimeMode: row.runtimeMode,
@@ -1909,6 +1941,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 threads.push({
                   id: row.threadId,
                   projectId: row.projectId,
+                  kind: row.kind,
+                  agentProfile: row.agentProfile,
+                  agentRoutines: row.agentRoutines,
+                  agentRuns: row.agentRuns,
                   title: row.title,
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
@@ -2049,6 +2085,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   ? Result.succeed({
                       id: row.threadId,
                       projectId: row.projectId,
+                      kind: row.kind,
+                      agentProfile: row.agentProfile,
+                      agentRoutines: row.agentRoutines,
+                      agentRuns: row.agentRuns,
                       title: row.title,
                       modelSelection: row.modelSelection,
                       runtimeMode: row.runtimeMode,
@@ -2198,6 +2238,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 (row): OrchestrationThreadShell => ({
                   id: row.threadId,
                   projectId: row.projectId,
+                  kind: row.kind,
+                  agentProfile: row.agentProfile,
+                  agentRoutines: row.agentRoutines,
+                  agentRuns: row.agentRuns,
                   title: row.title,
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
@@ -2481,6 +2525,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       return Option.some({
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
+        kind: threadRow.value.kind,
+        agentProfile: threadRow.value.agentProfile,
+        agentRoutines: threadRow.value.agentRoutines,
+        agentRuns: threadRow.value.agentRuns,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
@@ -2626,6 +2674,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       const thread = {
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
+        kind: threadRow.value.kind,
+        agentProfile: threadRow.value.agentProfile,
+        agentRoutines: threadRow.value.agentRoutines,
+        agentRuns: threadRow.value.agentRuns,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
@@ -2653,6 +2705,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             id: row.messageId,
             role: row.role,
             text: row.text,
+            ...(row.routineRunId !== null ? { routineRunId: row.routineRunId } : {}),
             turnId: row.turnId,
             streaming: row.isStreaming === 1,
             createdAt: row.createdAt,

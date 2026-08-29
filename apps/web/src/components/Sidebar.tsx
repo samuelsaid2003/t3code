@@ -89,7 +89,11 @@ import {
   buildSidebarProjectSnapshots,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  type PersistedThreadRouteTarget,
+  useUiStateStore,
+} from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -101,7 +105,7 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useAgentThreadShells, useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
@@ -117,6 +121,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat"
 import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
+import { resolveAgentIndexTarget } from "./agents/agentNavigation";
 import {
   animatePinnedLayoutChanges,
   buildBulkTitleRegenerationContextMenuItem,
@@ -174,7 +179,11 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
-import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import {
+  SidebarChromeFooter,
+  SidebarChromeHeader,
+  SidebarModeToggle,
+} from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -1810,6 +1819,13 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const agents = useAgentThreadShells();
+  const lastAgentThreadKey = useUiStateStore((state) => state.lastAgentThreadKey);
+  const setLastThreadRouteTarget = useUiStateStore((state) => state.setLastThreadRouteTarget);
+  const agentIndexTarget = useMemo(
+    () => resolveAgentIndexTarget(agents, lastAgentThreadKey),
+    [agents, lastAgentThreadKey],
+  );
   const workspaceGroupPanes = useThreadWorkspaceStore(selectThreadWorkspaceGroupPanes);
   const workspaceGroupActive = useThreadWorkspaceStore(selectThreadWorkspaceGroupActive);
   const router = useRouter();
@@ -1923,6 +1939,29 @@ export default function Sidebar() {
     [routeDraftThread, routeTarget],
   );
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const openAgentChats = useCallback(() => {
+    const lastThreadTarget: PersistedThreadRouteTarget | null = routeTarget
+      ? routeTarget.kind === "server"
+        ? {
+            kind: "server",
+            environmentId: routeTarget.threadRef.environmentId,
+            threadId: routeTarget.threadRef.threadId,
+          }
+        : { kind: "draft", draftId: routeTarget.draftId }
+      : null;
+    if (lastThreadTarget) setLastThreadRouteTarget(lastThreadTarget);
+    if (!agentIndexTarget) {
+      void router.navigate({ to: "/agents" });
+      return;
+    }
+    void router.navigate({
+      to: "/agents/$environmentId/$threadId",
+      params: {
+        environmentId: agentIndexTarget.environmentId,
+        threadId: agentIndexTarget.id,
+      },
+    });
+  }, [agentIndexTarget, routeTarget, router, setLastThreadRouteTarget]);
   const routeTargetRef = useRef(routeTarget);
   routeTargetRef.current = routeTarget;
   // Post-settle navigation validates against the CURRENT route, not the one
@@ -3706,6 +3745,7 @@ export default function Sidebar() {
                   </TooltipPopup>
                 </Tooltip>
               </div>
+              <SidebarModeToggle mode="threads" onSelect={openAgentChats} />
             </div>
             {projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">

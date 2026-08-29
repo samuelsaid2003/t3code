@@ -1,4 +1,5 @@
 import {
+  AgentRunId,
   EnvironmentId,
   MessageId,
   ProjectId,
@@ -9,7 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { Thread, ThreadShell } from "../types";
+import type { ChatMessage, Thread, ThreadShell } from "../types";
 import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -38,6 +39,7 @@ import {
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
+  visibleChatTimelineMessages,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
 
@@ -45,6 +47,28 @@ const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+
+describe("routine timeline visibility", () => {
+  it("hides only the routine trigger message", () => {
+    const message = (id: string, role: ChatMessage["role"]): ChatMessage => ({
+      id: MessageId.make(id),
+      role,
+      text: id,
+      turnId: null,
+      streaming: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const manual = message("manual", "user");
+    const trigger = {
+      ...message("trigger", "user"),
+      routineRunId: AgentRunId.make("run-1"),
+    };
+    const response = message("response", "assistant");
+
+    expect(visibleChatTimelineMessages([manual, trigger, response])).toEqual([manual, response]);
+  });
+});
 
 describe("draft hero submission transition", () => {
   it("does not dock the composer before a background submission", () => {

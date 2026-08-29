@@ -261,6 +261,11 @@ export const OrchestrationProject = Schema.Struct({
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
 
+export const AgentRoutineId = TrimmedNonEmptyString;
+export type AgentRoutineId = typeof AgentRoutineId.Type;
+export const AgentRunId = TrimmedNonEmptyString;
+export type AgentRunId = typeof AgentRunId.Type;
+
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
@@ -268,6 +273,8 @@ export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
+  // Present only on the hidden user prompt that wakes an Agent Chat routine.
+  routineRunId: Schema.optional(AgentRunId),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -395,9 +402,96 @@ export const ThreadLinkedPullRequest = Schema.Struct({
 });
 export type ThreadLinkedPullRequest = typeof ThreadLinkedPullRequest.Type;
 
+// `agent-run` remains decodeable so databases created by the former
+// child-thread implementation still open without rewriting thread history.
+export const ThreadKind = Schema.Literals(["standard", "agent", "agent-run"]);
+export type ThreadKind = typeof ThreadKind.Type;
+const CreatableThreadKind = Schema.Literals(["standard", "agent"]);
+
+export const AgentProfile = Schema.Struct({
+  instructions: TrimmedNonEmptyString,
+});
+export type AgentProfile = typeof AgentProfile.Type;
+
+const AgentRoutineHour = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 23 }));
+const AgentRoutineMinute = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 59 }));
+const AgentRoutineWeekDay = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 }));
+const AgentRoutineMonthDay = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 31 }));
+
+export const AgentRoutineSchedule = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("once"),
+    at: IsoDateTime,
+    timeZone: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("daily"),
+    hour: AgentRoutineHour,
+    minute: AgentRoutineMinute,
+    timeZone: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("weekly"),
+    weekDay: AgentRoutineWeekDay,
+    hour: AgentRoutineHour,
+    minute: AgentRoutineMinute,
+    timeZone: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("monthly"),
+    monthDay: AgentRoutineMonthDay,
+    hour: AgentRoutineHour,
+    minute: AgentRoutineMinute,
+    timeZone: TrimmedNonEmptyString,
+  }),
+]);
+export type AgentRoutineSchedule = typeof AgentRoutineSchedule.Type;
+
+export const AgentRoutineDraft = Schema.Struct({
+  id: AgentRoutineId,
+  name: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+  schedule: AgentRoutineSchedule,
+});
+export type AgentRoutineDraft = typeof AgentRoutineDraft.Type;
+
+export const AgentRoutine = Schema.Struct({
+  ...AgentRoutineDraft.fields,
+  nextRunAt: Schema.NullOr(IsoDateTime),
+  lastRunAt: Schema.NullOr(IsoDateTime),
+  lastStatus: Schema.NullOr(Schema.Literals(["completed", "failed"])),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type AgentRoutine = typeof AgentRoutine.Type;
+
+export const AgentRun = Schema.Struct({
+  id: AgentRunId,
+  routineId: AgentRoutineId,
+  // Same-thread runs use the scheduled user message as their durable anchor.
+  messageId: Schema.optional(MessageId),
+  // Decode-only compatibility for runs created by the former child-thread
+  // implementation. New commands never populate or navigate to this value.
+  childThreadId: Schema.optional(ThreadId),
+  status: Schema.Literals(["running", "completed", "failed"]),
+  scheduledFor: IsoDateTime,
+  startedAt: IsoDateTime,
+  completedAt: Schema.NullOr(IsoDateTime),
+  summary: Schema.NullOr(TrimmedNonEmptyString),
+  error: Schema.NullOr(TrimmedNonEmptyString),
+  attentionAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  attentionSummary: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+export type AgentRun = typeof AgentRun.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optional(ThreadKind),
+  agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
+  agentRoutines: Schema.optional(Schema.Array(AgentRoutine)),
+  agentRuns: Schema.optional(Schema.Array(AgentRun)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -474,6 +568,10 @@ export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optional(ThreadKind),
+  agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
+  agentRoutines: Schema.optional(Schema.Array(AgentRoutine)),
+  agentRuns: Schema.optional(Schema.Array(AgentRun)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -698,6 +796,8 @@ const ThreadCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optional(CreatableThreadKind),
+  agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -706,6 +806,38 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const ThreadAgentProfileUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-profile.update"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  profile: AgentProfile,
+});
+
+const ThreadAgentRoutineUpsertCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-routine.upsert"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  routine: AgentRoutineDraft,
+});
+
+const ThreadAgentRoutineDeleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-routine.delete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+});
+
+const ThreadAgentRunRequestCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-run.request"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+  runId: AgentRunId,
+  messageId: MessageId,
+  scheduledFor: IsoDateTime,
   createdAt: IsoDateTime,
 });
 
@@ -860,6 +992,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),
     text: Schema.String,
+    routineRunId: Schema.optional(AgentRunId),
     attachments: Schema.Array(ChatAttachment),
   }),
   modelSelection: Schema.optional(ModelSelection),
@@ -881,6 +1014,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),
     text: Schema.String,
+    routineRunId: Schema.optional(AgentRunId),
     attachments: Schema.Array(Schema.Union([UploadChatAttachment, ChatAttachment])),
   }),
   modelSelection: Schema.optional(ModelSelection),
@@ -944,6 +1078,10 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
+  ThreadAgentProfileUpdateCommand,
+  ThreadAgentRoutineUpsertCommand,
+  ThreadAgentRoutineDeleteCommand,
+  ThreadAgentRunRequestCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -972,6 +1110,10 @@ export const ClientOrchestrationCommand = Schema.Union([
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
+  ThreadAgentProfileUpdateCommand,
+  ThreadAgentRoutineUpsertCommand,
+  ThreadAgentRoutineDeleteCommand,
+  ThreadAgentRunRequestCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -1067,6 +1209,28 @@ const ThreadTitleRegenerationCompleteCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
 });
 
+const ThreadAgentRunCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-run.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+  runId: AgentRunId,
+  status: Schema.Literals(["completed", "failed"]),
+  summary: Schema.optional(TrimmedNonEmptyString),
+  error: Schema.optional(TrimmedNonEmptyString),
+  completedAt: IsoDateTime,
+});
+
+const ThreadAgentRunAttentionCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-run.attention"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+  runId: AgentRunId,
+  summary: TrimmedNonEmptyString,
+  requestedAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1076,6 +1240,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
+  ThreadAgentRunCompleteCommand,
+  ThreadAgentRunAttentionCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1090,6 +1256,12 @@ export const OrchestrationEventType = Schema.Literals([
   "project.meta-updated",
   "project.deleted",
   "thread.created",
+  "thread.agent-profile-updated",
+  "thread.agent-routine-upserted",
+  "thread.agent-routine-deleted",
+  "thread.agent-run-requested",
+  "thread.agent-run-completed",
+  "thread.agent-run-attention-requested",
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
@@ -1155,6 +1327,8 @@ export const ProjectDeletedPayload = Schema.Struct({
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optional(ThreadKind),
+  agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1164,6 +1338,51 @@ export const ThreadCreatedPayload = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentProfileUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  profile: AgentProfile,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentRoutineUpsertedPayload = Schema.Struct({
+  threadId: ThreadId,
+  routine: AgentRoutine,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentRoutineDeletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentRunRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  routine: AgentRoutine,
+  run: AgentRun,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentRunCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+  runId: AgentRunId,
+  status: Schema.Literals(["completed", "failed"]),
+  summary: Schema.optional(TrimmedNonEmptyString),
+  error: Schema.optional(TrimmedNonEmptyString),
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentRunAttentionRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  routineId: AgentRoutineId,
+  runId: AgentRunId,
+  summary: TrimmedNonEmptyString,
+  requestedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
@@ -1268,6 +1487,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   messageId: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
+  routineRunId: Schema.optional(AgentRunId),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -1404,6 +1624,36 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.created"),
     payload: ThreadCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-profile-updated"),
+    payload: ThreadAgentProfileUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-routine-upserted"),
+    payload: ThreadAgentRoutineUpsertedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-routine-deleted"),
+    payload: ThreadAgentRoutineDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-run-requested"),
+    payload: ThreadAgentRunRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-run-completed"),
+    payload: ThreadAgentRunCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-run-attention-requested"),
+    payload: ThreadAgentRunAttentionRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
