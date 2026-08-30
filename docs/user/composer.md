@@ -4,6 +4,10 @@ Messages can contain up to 120,000 characters. If a draft is longer, T3 Code kee
 composer and shows how many characters need to be removed. Shorten the draft or split it into
 multiple messages, then send again in the same thread.
 
+On desktop, an empty composer starts at two lines and grows as you add lines. The thread's current
+checkout and branch controls appear in the thread header, leaving the composer close to the bottom
+of the window. Web and mobile keep their existing run-context layout.
+
 You can attach images up to 10 MB. On servers that support file uploads, web and desktop can also
 attach text files, PDFs, ZIP archives, and other files. Each file can be up to the limit advertised
 by the server, capped at 50 MB. Each message can contain up to eight attachments in total. Files

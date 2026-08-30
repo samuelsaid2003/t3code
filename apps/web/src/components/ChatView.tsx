@@ -176,7 +176,7 @@ import {
   deriveAgentPanelModel,
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import { BranchToolbar } from "./BranchToolbar";
+import { BranchToolbar, type BranchToolbarProps } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
@@ -299,7 +299,7 @@ import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import {
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
-  shouldShowComposerContextStrip,
+  resolveRunContextPlacement,
   shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
 import {
@@ -3035,13 +3035,14 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  const showComposerContextStrip =
-    !sidePanelPresentation &&
-    shouldShowComposerContextStrip({
-      hasActiveProject: activeProject !== null,
-      isGitRepo,
-      showEnvironmentIndicator: showComposerEnvironmentIndicator,
-    });
+  const runContextPlacement = resolveRunContextPlacement({
+    hasActiveProject: activeProject !== null,
+    isGitRepo,
+    showEnvironmentIndicator: showComposerEnvironmentIndicator,
+    isElectron,
+    sidePanelPresentation,
+  });
+  const showComposerContextStrip = runContextPlacement === "composer";
   const initialDiffPanelGitScope =
     gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
   const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
@@ -7225,21 +7226,30 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onStartFromOriginChange = (nextStartFromOrigin: boolean) => {
-    if (canOverrideServerThreadEnvMode && activeThread) {
-      setPendingServerThreadStartFromOriginByThreadId((current) =>
-        current[activeThread.id] === nextStartFromOrigin
-          ? current
-          : { ...current, [activeThread.id]: nextStartFromOrigin },
-      );
-      return;
-    }
-    if (isLocalDraftThread) {
-      setDraftThreadContext(composerDraftTarget, {
-        startFromOrigin: nextStartFromOrigin,
-      });
-    }
-  };
+  const onStartFromOriginChange = useCallback(
+    (nextStartFromOrigin: boolean) => {
+      if (canOverrideServerThreadEnvMode && activeThreadId !== null) {
+        setPendingServerThreadStartFromOriginByThreadId((current) =>
+          current[activeThreadId] === nextStartFromOrigin
+            ? current
+            : { ...current, [activeThreadId]: nextStartFromOrigin },
+        );
+        return;
+      }
+      if (isLocalDraftThread) {
+        setDraftThreadContext(composerDraftTarget, {
+          startFromOrigin: nextStartFromOrigin,
+        });
+      }
+    },
+    [
+      activeThreadId,
+      canOverrideServerThreadEnvMode,
+      composerDraftTarget,
+      isLocalDraftThread,
+      setDraftThreadContext,
+    ],
+  );
 
   const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
     setExpandedImage(preview);
@@ -7266,6 +7276,60 @@ function ChatViewContent(props: ChatViewProps) {
     }
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
+
+  const runContextProps = useMemo<BranchToolbarProps | null>(() => {
+    if (
+      runContextPlacement === null ||
+      activeThreadEnvironmentId === null ||
+      activeThreadId === null
+    ) {
+      return null;
+    }
+    return {
+      environmentId: activeThreadEnvironmentId,
+      threadId: activeThreadId,
+      showGitControls: isGitRepo,
+      ...(routeKind === "draft" && draftId ? { draftId } : {}),
+      onEnvModeChange,
+      startFromOrigin,
+      onStartFromOriginChange,
+      ...(canOverrideServerThreadEnvMode ? { effectiveEnvModeOverride: envMode } : {}),
+      ...(canOverrideServerThreadEnvMode
+        ? {
+            activeThreadBranchOverride: activeThreadBranch,
+            onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+          }
+        : {}),
+      envLocked,
+      onComposerFocusRequest: scheduleComposerFocus,
+      ...(canCheckoutPullRequestIntoThread
+        ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+        : {}),
+      ...(hasMultipleEnvironments ? { onEnvironmentChange } : {}),
+      availableEnvironments: logicalProjectEnvironments,
+    };
+  }, [
+    activeThreadEnvironmentId,
+    activeThreadId,
+    activeThreadBranch,
+    canCheckoutPullRequestIntoThread,
+    canOverrideServerThreadEnvMode,
+    draftId,
+    envLocked,
+    envMode,
+    hasMultipleEnvironments,
+    isGitRepo,
+    logicalProjectEnvironments,
+    onEnvModeChange,
+    onEnvironmentChange,
+    onStartFromOriginChange,
+    openPullRequestDialog,
+    routeKind,
+    runContextPlacement,
+    scheduleComposerFocus,
+    setPendingServerThreadBranch,
+    startFromOrigin,
+  ]);
 
   // Empty state: no active thread
   if (!activeThread) {
@@ -7572,6 +7636,7 @@ function ChatViewContent(props: ChatViewProps) {
               availableEditors={availableEditors}
               rightPanelOpen={visibleRightPanelOpen}
               gitCwd={gitCwd}
+              runContext={runContextPlacement === "header" ? runContextProps : null}
               onNewThreadInProject={handleNewThreadInActiveProject}
               onRunProjectScript={runProjectScript}
               onAddProjectScript={saveProjectScript}
@@ -7841,42 +7906,21 @@ function ChatViewContent(props: ChatViewProps) {
                           data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
                           className="relative z-0"
                         >
-                          {showComposerContextStrip && (
+                          {showComposerContextStrip && runContextProps ? (
                             <div className="pointer-events-auto">
-                              <BranchToolbar
-                                environmentId={activeThread.environmentId}
-                                threadId={activeThread.id}
-                                showGitControls={isGitRepo}
-                                {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                                onEnvModeChange={onEnvModeChange}
-                                startFromOrigin={startFromOrigin}
-                                onStartFromOriginChange={onStartFromOriginChange}
-                                {...(canOverrideServerThreadEnvMode
-                                  ? { effectiveEnvModeOverride: envMode }
-                                  : {})}
-                                {...(canOverrideServerThreadEnvMode
-                                  ? {
-                                      activeThreadBranchOverride: activeThreadBranch,
-                                      onActiveThreadBranchOverrideChange:
-                                        setPendingServerThreadBranch,
-                                    }
-                                  : {})}
-                                envLocked={envLocked}
-                                onComposerFocusRequest={scheduleComposerFocus}
-                                {...(canCheckoutPullRequestIntoThread
-                                  ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                                  : {})}
-                                {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                                availableEnvironments={logicalProjectEnvironments}
-                              />
+                              <BranchToolbar {...runContextProps} />
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     </div>
                     <div
                       aria-hidden
-                      className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
+                      className={cn(
+                        isElectron
+                          ? "h-[calc(env(safe-area-inset-bottom)+0.75rem)]"
+                          : "h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]",
+                      )}
                     />
                   </div>
                 </div>

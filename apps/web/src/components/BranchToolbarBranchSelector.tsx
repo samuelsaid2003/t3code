@@ -68,6 +68,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 interface BranchToolbarBranchSelectorProps {
   className?: string;
+  placement?: "composer" | "header";
   environmentId: EnvironmentId;
   threadId: ThreadId;
   draftId?: DraftId;
@@ -87,6 +88,7 @@ function toBranchActionErrorMessage(error: unknown): string {
 
 export function BranchToolbarBranchSelector({
   className,
+  placement = "composer",
   environmentId,
   threadId,
   draftId,
@@ -747,7 +749,9 @@ export function BranchToolbarBranchSelector({
               <ChangeRequestStatusIcon className="size-3" />
               <span>#{branchPr.number}</span>
             </TooltipTrigger>
-            <TooltipPopup side="top">{branchPrTooltip}</TooltipPopup>
+            <TooltipPopup side={placement === "header" ? "bottom" : "top"}>
+              {branchPrTooltip}
+            </TooltipPopup>
           </Tooltip>
         ) : null}
         {/* Context menu lives on the wrapper: the disabled Button has
@@ -778,7 +782,11 @@ export function BranchToolbarBranchSelector({
           </ComboboxTrigger>
         </span>
       </div>
-      <ComboboxPopup align="end" side="top" className="flex w-80 flex-col">
+      <ComboboxPopup
+        align="end"
+        side={placement === "header" ? "bottom" : "top"}
+        className="flex w-80 flex-col"
+      >
         <div className="shrink-0 px-3 pt-2.5">
           <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">
             <SearchIcon

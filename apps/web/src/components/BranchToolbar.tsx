@@ -40,11 +40,13 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import { Separator } from "./ui/separator";
+import { cn } from "../lib/utils";
 
-interface BranchToolbarProps {
+export interface BranchToolbarProps {
   environmentId: EnvironmentId;
   threadId: ThreadId;
   showGitControls: boolean;
+  presentation?: "composer" | "header";
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   effectiveEnvModeOverride?: EnvMode;
@@ -377,6 +379,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
   showGitControls,
+  presentation = "composer",
   draftId,
   onEnvModeChange,
   effectiveEnvModeOverride,
@@ -469,7 +472,13 @@ export const BranchToolbar = memo(function BranchToolbar({
     <div
       ref={setStripElement}
       data-compact={labelsOverflow ? "" : undefined}
-      className="chat-composer-context-strip group/composer-context -mt-4 mx-auto flex w-[calc(100%-2.75rem)] max-w-[calc(48rem-2.75rem)] items-center gap-2 overflow-x-clip overflow-y-visible ps-1 pe-2 pt-5 pb-1"
+      data-run-context-presentation={presentation}
+      className={cn(
+        "group/composer-context flex min-w-0 items-center overflow-x-clip overflow-y-visible",
+        presentation === "header"
+          ? "w-fit max-w-[22rem] shrink gap-1 border-border/60 border-l pl-2 [-webkit-app-region:no-drag]"
+          : "chat-composer-context-strip -mt-4 mx-auto w-[calc(100%-2.75rem)] max-w-[calc(48rem-2.75rem)] gap-2 ps-1 pe-2 pt-5 pb-1",
+      )}
     >
       {isMobile && showGitControls ? (
         <MobileRunContextSelector
@@ -532,6 +541,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           onStartFromOriginChange={onStartFromOriginChange}
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+          placement={presentation}
         />
       ) : null}
     </div>

@@ -19,6 +19,7 @@ import {
   sanitizeNewRefName,
   shouldIncludeBranchPickerItem,
   shouldShowComposerContextStrip,
+  resolveRunContextPlacement,
   shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
 
@@ -452,6 +453,43 @@ describe("shouldShowComposerContextStrip", () => {
         showEnvironmentIndicator: false,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveRunContextPlacement", () => {
+  const visibleContext = {
+    hasActiveProject: true,
+    isGitRepo: true,
+    showEnvironmentIndicator: false,
+    sidePanelPresentation: false,
+  };
+
+  it("moves desktop run context into the draggable thread header", () => {
+    expect(resolveRunContextPlacement({ ...visibleContext, isElectron: true })).toBe("header");
+  });
+
+  it("keeps browser run context attached to the composer", () => {
+    expect(resolveRunContextPlacement({ ...visibleContext, isElectron: false })).toBe("composer");
+  });
+
+  it("suppresses run context in side-panel chat presentation", () => {
+    expect(
+      resolveRunContextPlacement({
+        ...visibleContext,
+        isElectron: true,
+        sidePanelPresentation: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("hides run context when there is no project context to show", () => {
+    expect(
+      resolveRunContextPlacement({
+        ...visibleContext,
+        hasActiveProject: false,
+        isElectron: true,
+      }),
+    ).toBeNull();
   });
 });
 

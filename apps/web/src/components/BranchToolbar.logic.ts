@@ -62,6 +62,26 @@ export function shouldShowComposerContextStrip(input: {
   return input.hasActiveProject && (input.isGitRepo || input.showEnvironmentIndicator);
 }
 
+export function resolveRunContextPlacement(input: {
+  hasActiveProject: boolean;
+  isGitRepo: boolean;
+  showEnvironmentIndicator: boolean;
+  isElectron: boolean;
+  sidePanelPresentation: boolean;
+}): "header" | "composer" | null {
+  if (
+    input.sidePanelPresentation ||
+    !shouldShowComposerContextStrip({
+      hasActiveProject: input.hasActiveProject,
+      isGitRepo: input.isGitRepo,
+      showEnvironmentIndicator: input.showEnvironmentIndicator,
+    })
+  ) {
+    return null;
+  }
+  return input.isElectron ? "header" : "composer";
+}
+
 export function resolveEnvModeLabel(mode: EnvMode): string {
   return mode === "worktree" ? "New worktree" : "Current checkout";
 }
