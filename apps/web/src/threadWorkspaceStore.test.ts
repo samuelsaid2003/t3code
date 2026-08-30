@@ -11,8 +11,7 @@ import {
 import type { DragEndEvent } from "@dnd-kit/core";
 import {
   clampThreadWorkspaceRatio,
-  selectThreadWorkspaceGroupActive,
-  selectThreadWorkspaceGroupPanes,
+  selectThreadWorkspaceGroups,
   shouldNavigateThreadWorkspaceRoute,
   threadWorkspaceRouteKey,
   threadWorkspaceTargetKey,
@@ -75,7 +74,7 @@ describe("threadWorkspaceStore", () => {
     expect(threadWorkspaceTargetKey(state.panes[0]!.target)).toBe(
       threadWorkspaceTargetKey(outside),
     );
-    expect(selectThreadWorkspaceGroupPanes(state).map((pane) => pane.target)).toEqual([
+    expect(selectThreadWorkspaceGroups(state)[0]?.panes.map((pane) => pane.target)).toEqual([
       first,
       second,
     ]);
@@ -86,71 +85,179 @@ describe("threadWorkspaceStore", () => {
     expect(state.layout).toBe("rows");
     expect(state.columnRatio).toBe(63);
     expect(state.rowRatio).toBe(41);
-    expect(state.savedGroup?.panes).toHaveLength(2);
-    expect(selectThreadWorkspaceGroupActive(state)).toBe(true);
+    expect(state.savedGroups).toHaveLength(1);
+    expect(state.savedGroups[0]?.panes).toHaveLength(2);
+    expect(state.activeGroupId).toBe(state.savedGroups[0]?.id);
     expect(
       threadWorkspaceTargetKey(state.panes.find((pane) => pane.id === state.focusedPaneId)!.target),
     ).toBe(threadWorkspaceTargetKey(first));
   });
 
-  it("keeps one parked group while navigating between standalone threads", () => {
+  it("keeps parked groups while navigating between standalone threads", () => {
     const first = serverTarget("thread-1");
     const second = serverTarget("thread-2");
     useThreadWorkspaceStore.getState().syncRouteTarget(first);
     useThreadWorkspaceStore.getState().addTarget(second, "right");
     useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
-    const savedPanes = useThreadWorkspaceStore.getState().savedGroup!.panes;
+    const savedGroups = useThreadWorkspaceStore.getState().savedGroups;
 
     useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-4"));
     const state = useThreadWorkspaceStore.getState();
     expect(state.panes).toHaveLength(1);
-    expect(state.savedGroup?.panes).toBe(savedPanes);
+    expect(state.savedGroups).toBe(savedGroups);
   });
 
-  it("shows and restores a split group received from another desktop window", () => {
+  it("shows and restores split groups received from another desktop window", () => {
     const first = serverTarget("thread-1");
     const second = serverTarget("thread-2");
     const outside = serverTarget("thread-3");
     useThreadWorkspaceStore.getState().syncRouteTarget(outside);
 
-    useThreadWorkspaceStore.getState().syncSavedGroup({
-      panes: [
-        { id: "remote-pane-1", target: first },
-        { id: "remote-pane-2", target: second },
-      ],
-      layout: "columns",
-      columnRatio: 58,
-      rowRatio: 50,
-    });
+    useThreadWorkspaceStore.getState().syncSavedGroups([
+      {
+        id: "remote-group-1",
+        panes: [
+          { id: "remote-pane-1", target: first },
+          { id: "remote-pane-2", target: second },
+        ],
+        layout: "columns",
+        columnRatio: 58,
+        rowRatio: 50,
+      },
+      {
+        id: "remote-group-2",
+        panes: [
+          { id: "remote-pane-3", target: serverTarget("thread-4") },
+          { id: "remote-pane-4", target: serverTarget("thread-5") },
+        ],
+        layout: "rows",
+        columnRatio: 50,
+        rowRatio: 44,
+      },
+    ]);
 
     let state = useThreadWorkspaceStore.getState();
     expect(state.panes).toHaveLength(1);
-    expect(selectThreadWorkspaceGroupActive(state)).toBe(false);
-    expect(selectThreadWorkspaceGroupPanes(state).map((pane) => pane.target)).toEqual([
+    expect(state.activeGroupId).toBeNull();
+    expect(selectThreadWorkspaceGroups(state)).toHaveLength(2);
+    expect(selectThreadWorkspaceGroups(state)[0]?.panes.map((pane) => pane.target)).toEqual([
       first,
       second,
     ]);
-    expect(state.savedGroup?.panes.every((pane) => !pane.id.startsWith("remote-pane"))).toBe(true);
+    expect(
+      state.savedGroups.every((group) =>
+        group.panes.every((pane) => !pane.id.startsWith("remote-pane")),
+      ),
+    ).toBe(true);
 
     useThreadWorkspaceStore.getState().syncRouteTarget(second);
     state = useThreadWorkspaceStore.getState();
     expect(state.panes).toHaveLength(2);
     expect(state.columnRatio).toBe(58);
-    expect(selectThreadWorkspaceGroupActive(state)).toBe(true);
+    expect(state.activeGroupId).toBe("remote-group-1");
   });
 
-  it("replaces an old parked group when a new split is created", () => {
+  it("updates one remotely synchronized group without replacing the others", () => {
+    const firstGroup = {
+      id: "remote-group-1",
+      panes: [
+        { id: "remote-pane-1", target: serverTarget("thread-1") },
+        { id: "remote-pane-2", target: serverTarget("thread-2") },
+      ],
+      layout: "columns" as const,
+      columnRatio: 50,
+      rowRatio: 50,
+    };
+    const secondGroup = {
+      id: "remote-group-2",
+      panes: [
+        { id: "remote-pane-3", target: serverTarget("thread-3") },
+        { id: "remote-pane-4", target: serverTarget("thread-4") },
+      ],
+      layout: "rows" as const,
+      columnRatio: 50,
+      rowRatio: 50,
+    };
+    useThreadWorkspaceStore.getState().syncSavedGroups([firstGroup, secondGroup]);
+
+    useThreadWorkspaceStore.getState().syncSavedGroup({ ...firstGroup, columnRatio: 64 });
+
+    const state = useThreadWorkspaceStore.getState();
+    expect(state.savedGroups).toHaveLength(2);
+    expect(state.savedGroups.find((group) => group.id === firstGroup.id)?.columnRatio).toBe(64);
+    expect(state.savedGroups.find((group) => group.id === secondGroup.id)?.rowRatio).toBe(50);
+  });
+
+  it("keeps an active window's local group layout when another window updates that group", () => {
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-1"));
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-2"), "right");
+    const stateBefore = useThreadWorkspaceStore.getState();
+    const activeGroup = stateBefore.savedGroups[0]!;
+
+    useThreadWorkspaceStore.getState().syncSavedGroup({
+      ...activeGroup,
+      layout: "rows",
+      columnRatio: 70,
+      rowRatio: 35,
+    });
+
+    const state = useThreadWorkspaceStore.getState();
+    expect(state.savedGroups[0]).toBe(activeGroup);
+    expect(state.layout).toBe("columns");
+    expect(state.columnRatio).toBe(50);
+  });
+
+  it("removes one remotely deleted parked group without disturbing an active group", () => {
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-1"));
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-2"), "right");
+    const firstGroupId = useThreadWorkspaceStore.getState().activeGroupId!;
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-4"), "right");
+    const secondGroupId = useThreadWorkspaceStore.getState().activeGroupId!;
+
+    useThreadWorkspaceStore.getState().removeSavedGroup(firstGroupId);
+
+    const state = useThreadWorkspaceStore.getState();
+    expect(state.savedGroups.map((group) => group.id)).toEqual([secondGroupId]);
+    expect(state.activeGroupId).toBe(secondGroupId);
+    expect(state.panes).toHaveLength(2);
+  });
+
+  it("keeps multiple split groups and restores either group from any member", () => {
     useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-1"));
     useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-2"), "right");
     useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
 
     useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-4"), "right");
-    const state = useThreadWorkspaceStore.getState();
-    expect(state.panes.map((pane) => threadWorkspaceTargetKey(pane.target))).toEqual([
-      threadWorkspaceTargetKey(serverTarget("thread-3")),
-      threadWorkspaceTargetKey(serverTarget("thread-4")),
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-5"));
+
+    let state = useThreadWorkspaceStore.getState();
+    expect(state.savedGroups).toHaveLength(2);
+    expect(
+      state.savedGroups.map((group) =>
+        group.panes.map((pane) => threadWorkspaceTargetKey(pane.target)),
+      ),
+    ).toEqual([
+      [
+        threadWorkspaceTargetKey(serverTarget("thread-1")),
+        threadWorkspaceTargetKey(serverTarget("thread-2")),
+      ],
+      [
+        threadWorkspaceTargetKey(serverTarget("thread-3")),
+        threadWorkspaceTargetKey(serverTarget("thread-4")),
+      ],
     ]);
-    expect(state.savedGroup?.panes.map((pane) => threadWorkspaceTargetKey(pane.target))).toEqual([
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-2"));
+    state = useThreadWorkspaceStore.getState();
+    expect(state.panes.map((pane) => threadWorkspaceTargetKey(pane.target))).toEqual([
+      threadWorkspaceTargetKey(serverTarget("thread-1")),
+      threadWorkspaceTargetKey(serverTarget("thread-2")),
+    ]);
+
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-4"));
+    state = useThreadWorkspaceStore.getState();
+    expect(state.panes.map((pane) => threadWorkspaceTargetKey(pane.target))).toEqual([
       threadWorkspaceTargetKey(serverTarget("thread-3")),
       threadWorkspaceTargetKey(serverTarget("thread-4")),
     ]);
@@ -292,10 +399,31 @@ describe("threadWorkspaceStore", () => {
     expect(state.panes).toHaveLength(1);
     expect(state.focusedPaneId).toBe(state.panes[0]!.id);
     expect(state.layout).toBe("single");
-    expect(state.savedGroup).toBeNull();
+    expect(state.savedGroups).toEqual([]);
+    expect(state.activeGroupId).toBeNull();
 
     useThreadWorkspaceStore.getState().closePane(state.panes[0]!.id);
     expect(useThreadWorkspaceStore.getState().panes).toHaveLength(1);
+  });
+
+  it("dissolves only the active group and preserves other parked groups", () => {
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-1"));
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-2"), "right");
+    useThreadWorkspaceStore.getState().syncRouteTarget(serverTarget("thread-3"));
+    useThreadWorkspaceStore.getState().addTarget(serverTarget("thread-4"), "right");
+    expect(useThreadWorkspaceStore.getState().savedGroups).toHaveLength(2);
+
+    const activePaneId = useThreadWorkspaceStore.getState().focusedPaneId!;
+    useThreadWorkspaceStore.getState().closePane(activePaneId);
+
+    const state = useThreadWorkspaceStore.getState();
+    expect(state.panes).toHaveLength(1);
+    expect(state.activeGroupId).toBeNull();
+    expect(state.savedGroups).toHaveLength(1);
+    expect(state.savedGroups[0]?.panes.map((pane) => pane.target)).toEqual([
+      serverTarget("thread-1"),
+      serverTarget("thread-2"),
+    ]);
   });
 
   it("swaps pane slots and toggles temporary maximization", () => {

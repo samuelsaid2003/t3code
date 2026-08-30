@@ -18,6 +18,7 @@ export interface ThreadWorkspacePane {
 }
 
 export interface ThreadWorkspaceGroupSnapshot {
+  readonly id: string;
   readonly panes: ThreadWorkspacePane[];
   readonly layout: ThreadWorkspaceLayout;
   readonly columnRatio: number;
@@ -31,9 +32,12 @@ export interface ThreadWorkspaceState {
   columnRatio: number;
   rowRatio: number;
   maximizedPaneId: string | null;
-  savedGroup: ThreadWorkspaceGroupSnapshot | null;
+  savedGroups: ThreadWorkspaceGroupSnapshot[];
+  activeGroupId: string | null;
   syncRouteTarget: (target: ThreadRouteTarget) => void;
-  syncSavedGroup: (group: ThreadWorkspaceGroupSnapshot | null) => void;
+  syncSavedGroups: (groups: ThreadWorkspaceGroupSnapshot[]) => void;
+  syncSavedGroup: (group: ThreadWorkspaceGroupSnapshot) => void;
+  removeSavedGroup: (groupId: string) => void;
   addTarget: (target: ThreadRouteTarget, region: ThreadWorkspaceDropRegion) => boolean;
   replacePaneTarget: (paneId: string, target: ThreadRouteTarget) => void;
   focusPane: (paneId: string) => void;
@@ -48,9 +52,15 @@ export interface ThreadWorkspaceState {
 }
 
 let nextPaneId = 1;
+let nextGroupId = 1;
+const workspaceGroupIdPrefix = Math.random().toString(36).slice(2);
 
 function createPane(target: ThreadRouteTarget): ThreadWorkspacePane {
   return { id: `thread-pane-${nextPaneId++}`, target };
+}
+
+function createGroupId(): string {
+  return `thread-group-${workspaceGroupIdPrefix}-${nextGroupId++}`;
 }
 
 function resolveDraftThreadIdentity(draftId: DraftId) {
@@ -122,32 +132,22 @@ const initialState = {
   columnRatio: 50,
   rowRatio: 50,
   maximizedPaneId: null as string | null,
-  savedGroup: null as ThreadWorkspaceGroupSnapshot | null,
+  savedGroups: [] as ThreadWorkspaceGroupSnapshot[],
+  activeGroupId: null as string | null,
 };
 
-const EMPTY_WORKSPACE_GROUP_PANES: readonly ThreadWorkspacePane[] = [];
-
-export function selectThreadWorkspaceGroupPanes(
-  state: Pick<ThreadWorkspaceState, "savedGroup">,
-): readonly ThreadWorkspacePane[] {
-  return state.savedGroup?.panes ?? EMPTY_WORKSPACE_GROUP_PANES;
-}
-
-export function selectThreadWorkspaceGroupActive(
-  state: Pick<ThreadWorkspaceState, "panes" | "savedGroup">,
-): boolean {
-  if (state.panes.length <= 1 || state.savedGroup === null) return false;
-  const activeKeys = new Set(state.panes.map((pane) => threadWorkspaceTargetKey(pane.target)));
-  return (
-    activeKeys.size === state.savedGroup.panes.length &&
-    state.savedGroup.panes.every((pane) => activeKeys.has(threadWorkspaceTargetKey(pane.target)))
-  );
+export function selectThreadWorkspaceGroups(
+  state: Pick<ThreadWorkspaceState, "savedGroups">,
+): readonly ThreadWorkspaceGroupSnapshot[] {
+  return state.savedGroups;
 }
 
 function snapshotWorkspaceGroup(
   state: Pick<ThreadWorkspaceState, "panes" | "layout" | "columnRatio" | "rowRatio">,
+  groupId: string,
 ): ThreadWorkspaceGroupSnapshot {
   return {
+    id: groupId,
     panes: state.panes,
     layout: state.layout,
     columnRatio: state.columnRatio,
@@ -155,7 +155,11 @@ function snapshotWorkspaceGroup(
   };
 }
 
-function restoredWorkspaceGroup(group: ThreadWorkspaceGroupSnapshot, target: ThreadRouteTarget) {
+function restoredWorkspaceGroup(
+  group: ThreadWorkspaceGroupSnapshot,
+  target: ThreadRouteTarget,
+  savedGroups: ReadonlyArray<ThreadWorkspaceGroupSnapshot>,
+) {
   const existing = findPaneByTarget(group.panes, target);
   if (!existing) return null;
   const panes = group.panes.map((pane) =>
@@ -168,7 +172,8 @@ function restoredWorkspaceGroup(group: ThreadWorkspaceGroupSnapshot, target: Thr
     columnRatio: group.columnRatio,
     rowRatio: group.rowRatio,
     maximizedPaneId: null,
-    savedGroup: { ...group, panes },
+    activeGroupId: group.id,
+    savedGroups: upsertWorkspaceGroup(savedGroups, { ...group, panes }),
   };
 }
 
@@ -185,6 +190,39 @@ function localizeWorkspaceGroup(
   };
 }
 
+function findGroupByTarget(
+  groups: ReadonlyArray<ThreadWorkspaceGroupSnapshot>,
+  target: ThreadRouteTarget,
+): ThreadWorkspaceGroupSnapshot | null {
+  return groups.find((group) => findPaneByTarget(group.panes, target) !== null) ?? null;
+}
+
+function removeWorkspaceGroup(
+  groups: ReadonlyArray<ThreadWorkspaceGroupSnapshot>,
+  groupId: string,
+): ThreadWorkspaceGroupSnapshot[] {
+  return groups.filter((group) => group.id !== groupId);
+}
+
+function upsertWorkspaceGroup(
+  groups: ReadonlyArray<ThreadWorkspaceGroupSnapshot>,
+  group: ThreadWorkspaceGroupSnapshot,
+): ThreadWorkspaceGroupSnapshot[] {
+  const existingIndex = groups.findIndex((candidate) => candidate.id === group.id);
+  if (
+    existingIndex !== -1 &&
+    workspaceGroupSignature(groups[existingIndex]!) === workspaceGroupSignature(group)
+  ) {
+    return groups as ThreadWorkspaceGroupSnapshot[];
+  }
+  if (existingIndex === -1) {
+    return [...groups, group];
+  }
+  const next = [...groups];
+  next[existingIndex] = group;
+  return next;
+}
+
 export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) => ({
   ...initialState,
   syncRouteTarget: (target) => {
@@ -194,17 +232,24 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       const panes = state.panes.map((pane) =>
         pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
       );
+      const savedGroups =
+        panes.length > 1 && state.activeGroupId !== null
+          ? upsertWorkspaceGroup(
+              state.savedGroups,
+              snapshotWorkspaceGroup({ ...state, panes }, state.activeGroupId),
+            )
+          : state.savedGroups;
       set({
         panes,
         focusedPaneId: existing.id,
         maximizedPaneId: null,
-        savedGroup:
-          panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
+        savedGroups,
       });
       return;
     }
-    if (state.savedGroup) {
-      const restored = restoredWorkspaceGroup(state.savedGroup, target);
+    const savedGroup = findGroupByTarget(state.savedGroups, target);
+    if (savedGroup) {
+      const restored = restoredWorkspaceGroup(savedGroup, target, state.savedGroups);
       if (restored) {
         set(restored);
         return;
@@ -212,17 +257,27 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     }
     if (state.panes.length === 0 || state.focusedPaneId === null) {
       const pane = createPane(target);
-      set({ panes: [pane], focusedPaneId: pane.id, layout: "single" });
+      set({
+        panes: [pane],
+        focusedPaneId: pane.id,
+        layout: "single",
+        activeGroupId: null,
+      });
       return;
     }
     if (state.panes.length > 1) {
+      const groupId = state.activeGroupId ?? createGroupId();
       const pane = createPane(target);
       set({
         panes: [pane],
         focusedPaneId: pane.id,
         layout: "single",
         maximizedPaneId: null,
-        savedGroup: snapshotWorkspaceGroup(state),
+        savedGroups: upsertWorkspaceGroup(
+          state.savedGroups,
+          snapshotWorkspaceGroup(state, groupId),
+        ),
+        activeGroupId: null,
       });
       return;
     }
@@ -231,6 +286,7 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
         pane.id === state.focusedPaneId ? { ...pane, target } : pane,
       ),
       maximizedPaneId: null,
+      activeGroupId: null,
     });
   },
   addTarget: (target, region) => {
@@ -240,17 +296,24 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       const panes = state.panes.map((pane) =>
         pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
       );
+      const savedGroups =
+        panes.length > 1 && state.activeGroupId !== null
+          ? upsertWorkspaceGroup(
+              state.savedGroups,
+              snapshotWorkspaceGroup({ ...state, panes }, state.activeGroupId),
+            )
+          : state.savedGroups;
       set({
         panes,
         focusedPaneId: existing.id,
         maximizedPaneId: null,
-        savedGroup:
-          panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
+        savedGroups,
       });
       return true;
     }
-    if (state.savedGroup) {
-      const restored = restoredWorkspaceGroup(state.savedGroup, target);
+    const savedGroup = findGroupByTarget(state.savedGroups, target);
+    if (savedGroup) {
+      const restored = restoredWorkspaceGroup(savedGroup, target, state.savedGroups);
       if (restored) {
         set(restored);
         return true;
@@ -258,7 +321,12 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     }
     if (state.panes.length === 0) {
       const pane = createPane(target);
-      set({ panes: [pane], focusedPaneId: pane.id, layout: "single" });
+      set({
+        panes: [pane],
+        focusedPaneId: pane.id,
+        layout: "single",
+        activeGroupId: null,
+      });
       return true;
     }
     if (state.panes.length >= THREAD_WORKSPACE_MAX_PANES) return false;
@@ -272,17 +340,24 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
           ? "rows"
           : "columns"
         : "grid";
+    const groupId =
+      state.panes.length > 1 ? (state.activeGroupId ?? createGroupId()) : createGroupId();
+    const group = snapshotWorkspaceGroup(
+      {
+        panes,
+        layout,
+        columnRatio: state.columnRatio,
+        rowRatio: state.rowRatio,
+      },
+      groupId,
+    );
     set({
       panes,
       focusedPaneId: pane.id,
       layout,
       maximizedPaneId: null,
-      savedGroup: snapshotWorkspaceGroup({
-        panes,
-        layout,
-        columnRatio: state.columnRatio,
-        rowRatio: state.rowRatio,
-      }),
+      savedGroups: upsertWorkspaceGroup(state.savedGroups, group),
+      activeGroupId: groupId,
     });
     return true;
   },
@@ -293,17 +368,24 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       const panes = state.panes.map((pane) =>
         pane.id === existing.id ? promoteExistingPaneTarget(pane, target) : pane,
       );
+      const savedGroups =
+        panes.length > 1 && state.activeGroupId !== null
+          ? upsertWorkspaceGroup(
+              state.savedGroups,
+              snapshotWorkspaceGroup({ ...state, panes }, state.activeGroupId),
+            )
+          : state.savedGroups;
       set({
         panes,
         focusedPaneId: existing.id,
         maximizedPaneId: null,
-        savedGroup:
-          panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
+        savedGroups,
       });
       return;
     }
-    if (state.savedGroup) {
-      const restored = restoredWorkspaceGroup(state.savedGroup, target);
+    const savedGroup = findGroupByTarget(state.savedGroups, target);
+    if (savedGroup) {
+      const restored = restoredWorkspaceGroup(savedGroup, target, state.savedGroups);
       if (restored) {
         set(restored);
         return;
@@ -311,11 +393,19 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     }
     if (!state.panes.some((pane) => pane.id === paneId)) return;
     const panes = state.panes.map((pane) => (pane.id === paneId ? { ...pane, target } : pane));
+    const groupId = panes.length > 1 ? (state.activeGroupId ?? createGroupId()) : null;
     set({
       panes,
       focusedPaneId: paneId,
       maximizedPaneId: null,
-      savedGroup: panes.length > 1 ? snapshotWorkspaceGroup({ ...state, panes }) : state.savedGroup,
+      savedGroups:
+        groupId === null
+          ? state.savedGroups
+          : upsertWorkspaceGroup(
+              state.savedGroups,
+              snapshotWorkspaceGroup({ ...state, panes }, groupId),
+            ),
+      activeGroupId: groupId,
     });
   },
   focusPane: (paneId) => {
@@ -332,20 +422,32 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
       state.focusedPaneId === paneId
         ? (panes[Math.min(index, panes.length - 1)]?.id ?? null)
         : state.focusedPaneId;
+    const layout = layoutAfterPaneCount(panes.length, state.layout);
+    const groupId = panes.length > 1 ? (state.activeGroupId ?? createGroupId()) : null;
+    let savedGroups = state.savedGroups;
+    if (groupId !== null) {
+      savedGroups = upsertWorkspaceGroup(
+        savedGroups,
+        snapshotWorkspaceGroup(
+          {
+            panes,
+            layout,
+            columnRatio: state.columnRatio,
+            rowRatio: state.rowRatio,
+          },
+          groupId,
+        ),
+      );
+    } else if (state.activeGroupId !== null) {
+      savedGroups = removeWorkspaceGroup(savedGroups, state.activeGroupId);
+    }
     set({
       panes,
       focusedPaneId: nextFocusedPaneId,
-      layout: layoutAfterPaneCount(panes.length, state.layout),
+      layout,
       maximizedPaneId: state.maximizedPaneId === paneId ? null : state.maximizedPaneId,
-      savedGroup:
-        panes.length > 1
-          ? snapshotWorkspaceGroup({
-              panes,
-              layout: layoutAfterPaneCount(panes.length, state.layout),
-              columnRatio: state.columnRatio,
-              rowRatio: state.rowRatio,
-            })
-          : null,
+      savedGroups,
+      activeGroupId: groupId,
     });
   },
   swapPanes: (sourcePaneId, targetPaneId) => {
@@ -357,16 +459,17 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     const sourcePane = panes[sourceIndex]!;
     panes[sourceIndex] = panes[targetIndex]!;
     panes[targetIndex] = sourcePane;
+    const state = get();
+    const groupId = state.activeGroupId ?? createGroupId();
     set({
       panes,
       focusedPaneId: sourcePaneId,
       maximizedPaneId: null,
-      savedGroup: snapshotWorkspaceGroup({
-        panes,
-        layout: get().layout,
-        columnRatio: get().columnRatio,
-        rowRatio: get().rowRatio,
-      }),
+      savedGroups: upsertWorkspaceGroup(
+        state.savedGroups,
+        snapshotWorkspaceGroup({ ...state, panes }, groupId),
+      ),
+      activeGroupId: groupId,
     });
   },
   movePaneToEnd: (paneId) => {
@@ -374,11 +477,16 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
     const pane = state.panes.find((candidate) => candidate.id === paneId);
     if (!pane || state.panes.at(-1)?.id === paneId) return;
     const panes = [...state.panes.filter((candidate) => candidate.id !== paneId), pane];
+    const groupId = state.activeGroupId ?? createGroupId();
     set({
       panes,
       focusedPaneId: paneId,
       maximizedPaneId: null,
-      savedGroup: snapshotWorkspaceGroup({ ...state, panes }),
+      savedGroups: upsertWorkspaceGroup(
+        state.savedGroups,
+        snapshotWorkspaceGroup({ ...state, panes }, groupId),
+      ),
+      activeGroupId: groupId,
     });
   },
   toggleMaximizedPane: (paneId) => {
@@ -391,50 +499,94 @@ export const useThreadWorkspaceStore = create<ThreadWorkspaceState>((set, get) =
   setColumnRatio: (ratio) =>
     set((state) => {
       const columnRatio = clampThreadWorkspaceRatio(ratio);
+      const groupId = state.panes.length > 1 ? (state.activeGroupId ?? createGroupId()) : null;
       return {
         columnRatio,
-        savedGroup:
-          state.panes.length > 1
-            ? snapshotWorkspaceGroup({ ...state, columnRatio })
-            : state.savedGroup,
+        savedGroups:
+          groupId === null
+            ? state.savedGroups
+            : upsertWorkspaceGroup(
+                state.savedGroups,
+                snapshotWorkspaceGroup({ ...state, columnRatio }, groupId),
+              ),
+        activeGroupId: groupId,
       };
     }),
   setRowRatio: (ratio) =>
     set((state) => {
       const rowRatio = clampThreadWorkspaceRatio(ratio);
+      const groupId = state.panes.length > 1 ? (state.activeGroupId ?? createGroupId()) : null;
       return {
         rowRatio,
-        savedGroup:
-          state.panes.length > 1
-            ? snapshotWorkspaceGroup({ ...state, rowRatio })
-            : state.savedGroup,
+        savedGroups:
+          groupId === null
+            ? state.savedGroups
+            : upsertWorkspaceGroup(
+                state.savedGroups,
+                snapshotWorkspaceGroup({ ...state, rowRatio }, groupId),
+              ),
+        activeGroupId: groupId,
       };
     }),
   resetLayoutRatios: () =>
-    set((state) => ({
-      columnRatio: 50,
-      rowRatio: 50,
-      savedGroup:
-        state.panes.length > 1
-          ? snapshotWorkspaceGroup({ ...state, columnRatio: 50, rowRatio: 50 })
-          : state.savedGroup,
-    })),
+    set((state) => {
+      const groupId = state.panes.length > 1 ? (state.activeGroupId ?? createGroupId()) : null;
+      return {
+        columnRatio: 50,
+        rowRatio: 50,
+        savedGroups:
+          groupId === null
+            ? state.savedGroups
+            : upsertWorkspaceGroup(
+                state.savedGroups,
+                snapshotWorkspaceGroup({ ...state, columnRatio: 50, rowRatio: 50 }, groupId),
+              ),
+        activeGroupId: groupId,
+      };
+    }),
+  syncSavedGroups: (groups) =>
+    set((state) => {
+      let savedGroups = state.savedGroups;
+      for (const group of groups) {
+        if (savedGroups.some((candidate) => candidate.id === group.id)) continue;
+        savedGroups = upsertWorkspaceGroup(savedGroups, localizeWorkspaceGroup(group, null));
+      }
+      return savedGroups === state.savedGroups ? state : { savedGroups };
+    }),
   syncSavedGroup: (group) =>
-    set((state) => ({
-      savedGroup: group === null ? null : localizeWorkspaceGroup(group, state.savedGroup),
-    })),
-  reset: () => set({ ...initialState }),
+    set((state) => {
+      if (state.activeGroupId === group.id && state.panes.length > 1) return state;
+      const current = state.savedGroups.find((candidate) => candidate.id === group.id) ?? null;
+      const savedGroups = upsertWorkspaceGroup(
+        state.savedGroups,
+        localizeWorkspaceGroup(group, current),
+      );
+      return savedGroups === state.savedGroups ? state : { savedGroups };
+    }),
+  removeSavedGroup: (groupId) =>
+    set((state) => {
+      if (state.activeGroupId === groupId && state.panes.length > 1) return state;
+      const savedGroups = removeWorkspaceGroup(state.savedGroups, groupId);
+      return savedGroups.length === state.savedGroups.length ? state : { savedGroups };
+    }),
+  reset: () => set({ ...initialState, savedGroups: [] }),
 }));
 
-const THREAD_WORKSPACE_WINDOW_CHANNEL = "t3-thread-workspace-group-v1";
+const THREAD_WORKSPACE_WINDOW_CHANNEL = "t3-thread-workspace-groups-v2";
 
 type ThreadWorkspaceWindowMessage =
-  | { readonly sourceId: string; readonly type: "request-group" }
+  | { readonly sourceId: string; readonly type: "request-groups" }
+  | {
+      readonly sourceId: string;
+      readonly type: "sync-groups";
+      readonly groups: ThreadWorkspaceGroupSnapshot[];
+    }
   | {
       readonly sourceId: string;
       readonly type: "sync-group";
-      readonly group: ThreadWorkspaceGroupSnapshot | null;
-    };
+      readonly group: ThreadWorkspaceGroupSnapshot;
+    }
+  | { readonly sourceId: string; readonly type: "remove-group"; readonly groupId: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -452,6 +604,7 @@ function isThreadRouteTarget(value: unknown): value is ThreadRouteTarget {
 
 function isWorkspaceGroupSnapshot(value: unknown): value is ThreadWorkspaceGroupSnapshot {
   if (!isRecord(value) || !Array.isArray(value.panes)) return false;
+  if (typeof value.id !== "string" || value.id.length === 0) return false;
   if (value.panes.length < 2 || value.panes.length > THREAD_WORKSPACE_MAX_PANES) return false;
   if (value.layout !== "columns" && value.layout !== "rows" && value.layout !== "grid") {
     return false;
@@ -463,9 +616,9 @@ function isWorkspaceGroupSnapshot(value: unknown): value is ThreadWorkspaceGroup
   );
 }
 
-function workspaceGroupSignature(group: ThreadWorkspaceGroupSnapshot | null): string {
-  if (group === null) return "none";
+function workspaceGroupSignature(group: ThreadWorkspaceGroupSnapshot): string {
   return JSON.stringify({
+    id: group.id,
     targets: group.panes.map((pane) => ({
       kind: pane.target.kind,
       key: threadWorkspaceTargetKey(pane.target),
@@ -482,38 +635,72 @@ function startThreadWorkspaceWindowSync() {
   const sourceId = `thread-workspace-window-${Math.random().toString(36).slice(2)}`;
   const channel = new BroadcastChannel(THREAD_WORKSPACE_WINDOW_CHANNEL);
   const sendWindowMessage = channel.postMessage.bind(channel);
-  let latestSignature = workspaceGroupSignature(useThreadWorkspaceStore.getState().savedGroup);
+  let applyingRemoteUpdate = false;
 
-  const postGroup = () => {
+  const postGroups = () => {
     sendWindowMessage({
       sourceId,
-      type: "sync-group",
-      group: useThreadWorkspaceStore.getState().savedGroup,
+      type: "sync-groups",
+      groups: useThreadWorkspaceStore.getState().savedGroups,
     } satisfies ThreadWorkspaceWindowMessage);
   };
 
   channel.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (!isRecord(event.data) || event.data.sourceId === sourceId) return;
-    if (event.data.type === "request-group") {
-      postGroup();
+    if (event.data.type === "request-groups") {
+      postGroups();
       return;
     }
-    if (event.data.type !== "sync-group") return;
-    const group = event.data.group;
-    if (group !== null && !isWorkspaceGroupSnapshot(group)) return;
-    latestSignature = workspaceGroupSignature(group);
-    useThreadWorkspaceStore.getState().syncSavedGroup(group);
+    applyingRemoteUpdate = true;
+    try {
+      if (event.data.type === "sync-groups") {
+        if (!Array.isArray(event.data.groups)) return;
+        const groups = event.data.groups;
+        if (!groups.every(isWorkspaceGroupSnapshot)) return;
+        useThreadWorkspaceStore.getState().syncSavedGroups(groups);
+        return;
+      }
+      if (event.data.type === "sync-group") {
+        if (!isWorkspaceGroupSnapshot(event.data.group)) return;
+        useThreadWorkspaceStore.getState().syncSavedGroup(event.data.group);
+        return;
+      }
+      if (event.data.type === "remove-group" && typeof event.data.groupId === "string") {
+        useThreadWorkspaceStore.getState().removeSavedGroup(event.data.groupId);
+      }
+    } finally {
+      applyingRemoteUpdate = false;
+    }
   });
 
   useThreadWorkspaceStore.subscribe((state, previous) => {
-    if (state.savedGroup === previous.savedGroup) return;
-    const signature = workspaceGroupSignature(state.savedGroup);
-    if (signature === latestSignature) return;
-    latestSignature = signature;
-    postGroup();
+    if (applyingRemoteUpdate || state.savedGroups === previous.savedGroups) return;
+    const previousById = new Map(previous.savedGroups.map((group) => [group.id, group]));
+    for (const group of state.savedGroups) {
+      const previousGroup = previousById.get(group.id);
+      previousById.delete(group.id);
+      if (
+        previousGroup &&
+        workspaceGroupSignature(previousGroup) === workspaceGroupSignature(group)
+      ) {
+        continue;
+      }
+      sendWindowMessage({
+        sourceId,
+        type: "sync-group",
+        group,
+      } satisfies ThreadWorkspaceWindowMessage);
+    }
+    for (const groupId of previousById.keys()) {
+      sendWindowMessage({
+        sourceId,
+        type: "remove-group",
+        groupId,
+      } satisfies ThreadWorkspaceWindowMessage);
+    }
   });
 
-  sendWindowMessage({ sourceId, type: "request-group" } satisfies ThreadWorkspaceWindowMessage);
+  sendWindowMessage({ sourceId, type: "request-groups" } satisfies ThreadWorkspaceWindowMessage);
 }
 
 startThreadWorkspaceWindowSync();

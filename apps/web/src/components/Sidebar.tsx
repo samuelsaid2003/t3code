@@ -205,11 +205,7 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
-import {
-  selectThreadWorkspaceGroupActive,
-  selectThreadWorkspaceGroupPanes,
-  useThreadWorkspaceStore,
-} from "../threadWorkspaceStore";
+import { selectThreadWorkspaceGroups, useThreadWorkspaceStore } from "../threadWorkspaceStore";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -1839,8 +1835,12 @@ export default function Sidebar() {
     () => resolveAgentIndexTarget(agents, lastAgentThreadKey),
     [agents, lastAgentThreadKey],
   );
-  const workspaceGroupPanes = useThreadWorkspaceStore(selectThreadWorkspaceGroupPanes);
-  const workspaceGroupActive = useThreadWorkspaceStore(selectThreadWorkspaceGroupActive);
+  const workspaceGroups = useThreadWorkspaceStore(selectThreadWorkspaceGroups);
+  const activeWorkspaceGroupId = useThreadWorkspaceStore((state) => state.activeGroupId);
+  const workspaceGroupPanes = useMemo(
+    () => workspaceGroups.flatMap((group) => group.panes),
+    [workspaceGroups],
+  );
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -4137,11 +4137,13 @@ export default function Sidebar() {
                       onNavigateToDraft={navigateToDraft}
                     />,
                   ];
-                  if (workspaceGroupPanes.length > 1) {
+                  for (const workspaceGroup of workspaceGroups) {
+                    const workspaceGroupActive = workspaceGroup.id === activeWorkspaceGroupId;
                     items.push(
-                      <li key="thread-workspace-group" className="list-none py-1">
+                      <li key={workspaceGroup.id} className="list-none py-1">
                         <div
                           data-testid="sidebar-thread-workspace-group"
+                          data-group-id={workspaceGroup.id}
                           data-state={workspaceGroupActive ? "active" : "parked"}
                           className={cn(
                             "rounded-lg border border-dotted p-0.5",
@@ -4159,7 +4161,7 @@ export default function Sidebar() {
                             }
                             className="flex flex-col gap-px"
                           >
-                            {workspaceGroupPanes.map((pane) => {
+                            {workspaceGroup.panes.map((pane) => {
                               if (pane.target.kind === "draft") {
                                 return (
                                   <SidebarWorkspaceDraftRow
