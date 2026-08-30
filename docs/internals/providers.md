@@ -39,6 +39,20 @@ directory to route session and turn operations for a thread, so callers name a t
 Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
 orchestration, contract, or client change is required for the common case.
 
+## Codex side chats
+
+Desktop Side chat is a temporary T3 `side` thread related to one ordinary parent by
+`parentThreadId`. Creation is Codex-only and copies the parent's project, model, runtime policy,
+interaction mode, branch, and worktree. `ProviderCommandReactor` asks `ProviderService` to fork the
+parent's persisted Codex cursor through the same enabled provider instance. The Codex adapter uses
+`thread/fork` with a durable provider thread, then injects the side-conversation boundary before
+the child becomes ready. Fork or injection failure leaves the child in an error state; it never
+falls back to a blank conversation.
+
+Only one undeleted side child may exist per parent. It is excluded from ordinary and Agent Chat
+navigation on every client. The desktop renderer owns its right-panel surface; closing that surface
+deletes the T3 child, and deleting the parent deletes the child first.
+
 ## OpenCode server ownership and catalog
 
 Each OpenCode provider instance owns one lazy local server for catalog discovery and

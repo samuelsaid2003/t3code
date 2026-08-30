@@ -44,6 +44,10 @@ export interface ProviderThreadSnapshot {
   readonly turns: ReadonlyArray<ProviderThreadTurnSnapshot>;
 }
 
+export type ProviderAdapterForkSessionInput = Omit<ProviderSessionStartInput, "resumeCursor"> & {
+  readonly sourceResumeCursor: unknown;
+};
+
 export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
@@ -56,6 +60,11 @@ export interface ProviderAdapterShape<TError> {
    */
   readonly startSession: (
     input: ProviderSessionStartInput,
+  ) => Effect.Effect<ProviderSession, TError>;
+
+  /** Start a new provider session by forking persisted provider-native history. */
+  readonly forkSession?: (
+    input: ProviderAdapterForkSessionInput,
   ) => Effect.Effect<ProviderSession, TError>;
 
   /**

@@ -629,6 +629,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
             kind: event.payload.kind ?? "standard",
+            parentThreadId: event.payload.parentThreadId ?? null,
             agentProfile: event.payload.agentProfile ?? null,
             agentRoutines: [],
             agentRuns: [],

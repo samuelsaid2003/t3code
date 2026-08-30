@@ -122,6 +122,55 @@ function renderTabs(
   );
 }
 
+function renderEmptyTabs(sideChatVisible: boolean, sideChatAvailable: boolean) {
+  return renderToStaticMarkup(
+    <RightPanelTabs
+      mode="inline"
+      surfaces={[]}
+      activeSurfaceId={null}
+      pendingSurfaceIds={new Set()}
+      previewSessions={{}}
+      desktopByTabId={{}}
+      terminalLabelsById={new Map()}
+      onActivate={() => undefined}
+      onCloseSurface={() => undefined}
+      onCloseOtherSurfaces={() => undefined}
+      onCloseSurfacesToRight={() => undefined}
+      onCloseAllSurfaces={() => undefined}
+      onCopyFilePath={() => undefined}
+      onAddBrowser={() => undefined}
+      onAddTerminal={() => undefined}
+      onAddPullRequest={() => undefined}
+      onAddDiff={() => undefined}
+      onAddFiles={() => undefined}
+      onAddAgents={() => undefined}
+      onAddSideChat={() => undefined}
+      liveAgentCount={0}
+      browserAvailable={false}
+      terminalAvailable={false}
+      diffAvailable={false}
+      filesAvailable={false}
+      pullRequestAvailable={false}
+      agentsAvailable={false}
+      sideChatVisible={sideChatVisible}
+      sideChatAvailable={sideChatAvailable}
+    >
+      <div>content</div>
+    </RightPanelTabs>,
+  );
+}
+
+describe("RightPanelTabs Side chat launcher", () => {
+  it("omits Side chat entirely when the parent surface says it is not desktop-visible", () => {
+    expect(renderEmptyTabs(false, false)).not.toContain("Side chat");
+  });
+
+  it("shows the disabled and enabled desktop launcher states", () => {
+    expect(renderEmptyTabs(true, false)).toContain("Send a Codex message first.");
+    expect(renderEmptyTabs(true, true)).toContain("Ask about this conversation");
+  });
+});
+
 describe("RightPanelTabs preview favicon", () => {
   it("prefers a live capture and never asks Google about a private hostname", () => {
     const captured = renderTabs(favicon("data:image/png;base64,AAAA", "http://24x.xf.local/"));

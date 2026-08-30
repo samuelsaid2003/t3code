@@ -714,6 +714,114 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const forkSession: ProviderServiceMethod<"forkSession"> = Effect.fn("forkSession")(
+    function* (sourceThreadId, rawInput) {
+      const parsed = yield* decodeInputOrValidationError({
+        operation: "ProviderService.forkSession",
+        schema: ProviderSessionStartInput,
+        payload: rawInput,
+      });
+      if (parsed.resumeCursor !== undefined) {
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          "A fork request cannot also provide a child resume cursor.",
+        );
+      }
+
+      const resolvedInstanceId = yield* requireBindingInstanceId(
+        "ProviderService.forkSession",
+        parsed,
+      );
+      const instanceInfo = yield* registry.getInstanceInfo(resolvedInstanceId);
+      if (!instanceInfo.enabled) {
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          `Provider instance '${resolvedInstanceId}' is disabled in T3 Code settings.`,
+        );
+      }
+      if (instanceInfo.driverKind !== "codex") {
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          "Side-chat session forks are supported only by Codex.",
+        );
+      }
+      if (parsed.provider !== undefined && parsed.provider !== instanceInfo.driverKind) {
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          `Provider instance '${resolvedInstanceId}' belongs to driver '${instanceInfo.driverKind}', not '${parsed.provider}'.`,
+        );
+      }
+
+      const sourceBinding = Option.getOrUndefined(yield* directory.getBinding(sourceThreadId));
+      if (
+        sourceBinding?.providerInstanceId !== resolvedInstanceId ||
+        sourceBinding.resumeCursor == null
+      ) {
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          `Thread '${sourceThreadId}' does not have compatible persisted Codex context to fork.`,
+        );
+      }
+
+      const adapter = yield* registry.getByInstance(resolvedInstanceId);
+      if (!adapter.forkSession) {
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          `Provider '${adapter.provider}' does not support session forks.`,
+        );
+      }
+
+      const threadId = parsed.threadId;
+      const { resumeCursor: _resumeCursor, ...startInput } = parsed;
+      yield* Effect.annotateCurrentSpan({
+        "provider.operation": "fork-session",
+        "provider.kind": adapter.provider,
+        "provider.instance_id": resolvedInstanceId,
+        "provider.thread_id": threadId,
+        "provider.source_thread_id": sourceThreadId,
+      });
+      yield* prepareMcpSession(threadId, resolvedInstanceId);
+      const session = yield* adapter
+        .forkSession({
+          ...startInput,
+          threadId,
+          provider: adapter.provider,
+          providerInstanceId: resolvedInstanceId,
+          sourceResumeCursor: sourceBinding.resumeCursor,
+        })
+        .pipe(Effect.onError(() => clearMcpSession(threadId)));
+      if (session.provider !== adapter.provider) {
+        yield* clearMcpSession(threadId);
+        return yield* toValidationError(
+          "ProviderService.forkSession",
+          `Adapter/provider mismatch: requested '${adapter.provider}', received '${session.provider}'.`,
+        );
+      }
+
+      const sessionWithInstance = {
+        ...session,
+        providerInstanceId: resolvedInstanceId,
+      };
+      yield* stopStaleSessionsForThread({
+        threadId,
+        currentInstanceId: resolvedInstanceId,
+      });
+      yield* upsertSessionBinding(sessionWithInstance, threadId, {
+        modelSelection: parsed.modelSelection,
+      });
+      yield* analytics.record("provider.session.started", {
+        provider: sessionWithInstance.provider,
+        runtimeMode: parsed.runtimeMode,
+        hasResumeCursor: sessionWithInstance.resumeCursor !== undefined,
+        hasCwd: typeof parsed.cwd === "string" && parsed.cwd.trim().length > 0,
+        hasModel:
+          typeof parsed.modelSelection?.model === "string" &&
+          parsed.modelSelection.model.trim().length > 0,
+      });
+      return sessionWithInstance;
+    },
+  );
+
   const sendTurn: ProviderServiceMethod<"sendTurn"> = Effect.fn("sendTurn")(function* (rawInput) {
     const parsed = yield* decodeInputOrValidationError({
       operation: "ProviderService.sendTurn",
@@ -1219,6 +1327,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   return {
     startSession,
+    forkSession,
     sendTurn,
     interruptTurn,
     respondToRequest,

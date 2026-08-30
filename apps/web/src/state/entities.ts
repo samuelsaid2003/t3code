@@ -124,6 +124,25 @@ export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   );
 }
 
+/** The temporary side conversation attached to a parent thread, if one exists. */
+export function useSideThreadShell(
+  parentRef: ScopedThreadRef | null,
+): EnvironmentThreadShell | null {
+  const threads = useAtomValue(environmentThreadShells.threadShellsAtom);
+  return useMemo(
+    () =>
+      parentRef === null
+        ? null
+        : (threads.find(
+            (thread) =>
+              thread.environmentId === parentRef.environmentId &&
+              thread.kind === "side" &&
+              thread.parentThreadId === parentRef.threadId,
+          ) ?? null),
+    [parentRef, threads],
+  );
+}
+
 /** Desktop Agent Chats live outside the ordinary project-thread navigation. */
 export function useAgentThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   const threads = useAtomValue(environmentThreadShells.threadShellsAtom);

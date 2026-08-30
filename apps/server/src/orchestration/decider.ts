@@ -7,6 +7,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import type * as PlatformError from "effect/PlatformError";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -29,6 +30,17 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 // window is a failed/stale start, not pending work. Mirrors the client's
 // QUEUED_TURN_START_GRACE_MS in client-runtime threadSettled.ts.
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
+const SIDE_THREAD_UNSUPPORTED_LIFECYCLE_COMMANDS = new Set<OrchestrationCommand["type"]>([
+  "thread.archive",
+  "thread.unarchive",
+  "thread.settle",
+  "thread.unsettle",
+  "thread.snooze",
+  "thread.unsnooze",
+  "thread.pin",
+  "thread.unpin",
+  "thread.pin.reorder",
+]);
 
 /**
  * Blocked-on-you work derived from the thread's retained activities: an
@@ -224,6 +236,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   OrchestrationCommandInvariantError | PlatformError.PlatformError,
   Crypto.Crypto
 > {
+  if (
+    "threadId" in command &&
+    SIDE_THREAD_UNSUPPORTED_LIFECYCLE_COMMANDS.has(command.type) &&
+    readModel.threads.find((thread) => thread.id === command.threadId)?.kind === "side"
+  ) {
+    return yield* new OrchestrationCommandInvariantError({
+      commandType: command.type,
+      detail: `side thread ${command.threadId} does not support lifecycle controls`,
+    });
+  }
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({
@@ -368,6 +390,61 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: "Agent threads require an agent profile.",
         });
       }
+      if (threadKind === "side") {
+        if (command.parentThreadId == null) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Side threads require a parent thread.",
+          });
+        }
+        const parent = yield* requireThread({
+          readModel,
+          command,
+          threadId: command.parentThreadId,
+        });
+        if (parent.kind === "side") {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Side threads cannot be created from another side thread.",
+          });
+        }
+        if (parent.session?.providerName !== "codex") {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${parent.id}' does not have a Codex session to fork.`,
+          });
+        }
+        const copiesParentConfiguration =
+          command.projectId === parent.projectId &&
+          Equal.equals(command.modelSelection, parent.modelSelection) &&
+          command.runtimeMode === parent.runtimeMode &&
+          command.interactionMode === parent.interactionMode &&
+          command.branch === parent.branch &&
+          command.worktreePath === parent.worktreePath;
+        if (!copiesParentConfiguration) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Side threads must copy their parent thread configuration.",
+          });
+        }
+        const existingSideThread = readModel.threads.find(
+          (thread) =>
+            thread.kind === "side" &&
+            thread.parentThreadId === parent.id &&
+            thread.deletedAt === null,
+        );
+        if (existingSideThread) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${parent.id}' already has an open side chat.`,
+          });
+        }
+      } else if (command.parentThreadId != null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Only side threads can reference a parent thread.",
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -380,6 +457,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           projectId: command.projectId,
           kind: threadKind,
+          parentThreadId: command.parentThreadId ?? null,
           agentProfile: command.agentProfile ?? null,
           title: command.title,
           modelSelection: command.modelSelection,
@@ -564,11 +642,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      const activeSideChildren = readModel.threads.filter(
+        (candidate) =>
+          candidate.kind === "side" &&
+          candidate.parentThreadId === thread.id &&
+          candidate.deletedAt === null,
+      );
+      if (activeSideChildren.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...activeSideChildren.map(
+              (child): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
+                type: "thread.delete",
+                commandId: command.commandId,
+                threadId: child.id,
+              }),
+            ),
+            command,
+          ],
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({

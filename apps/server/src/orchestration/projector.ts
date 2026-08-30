@@ -299,6 +299,7 @@ export function projectEvent(
             id: payload.threadId,
             projectId: payload.projectId,
             kind: payload.kind ?? "standard",
+            parentThreadId: payload.parentThreadId ?? null,
             agentProfile: payload.agentProfile ?? null,
             agentRoutines: [],
             agentRuns: [],

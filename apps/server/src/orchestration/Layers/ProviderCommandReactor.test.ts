@@ -238,6 +238,19 @@ describe("ProviderCommandReactor", () => {
         turnId: asTurnId("turn-1"),
       }),
     );
+    const forkSession = vi.fn<ProviderServiceShape["forkSession"]>((_sourceThreadId, forkInput) =>
+      Effect.succeed({
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: forkInput.providerInstanceId,
+        status: "ready",
+        runtimeMode: forkInput.runtimeMode,
+        threadId: forkInput.threadId,
+        resumeCursor: { opaque: `fork-${forkInput.threadId}` },
+        cwd: forkInput.cwd ?? process.cwd(),
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
     const interruptTurn = vi.fn((_: unknown) => input?.interruptTurnEffect?.() ?? Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
@@ -322,6 +335,7 @@ describe("ProviderCommandReactor", () => {
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
+      forkSession,
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
@@ -514,6 +528,7 @@ describe("ProviderCommandReactor", () => {
       engine,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       startSession,
+      forkSession,
       sendTurn,
       interruptTurn,
       respondToRequest,
@@ -573,6 +588,78 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("forks a side thread and marks its provider session ready", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const parentThreadId = ThreadId.make("thread-1");
+    const sideThreadId = ThreadId.make("side-thread-1");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-parent-session-ready"),
+        threadId: parentThreadId,
+        session: {
+          threadId: parentThreadId,
+          status: "ready",
+          providerName: ProviderDriverKind.make("codex"),
+          providerInstanceId,
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-side-thread-create"),
+        threadId: sideThreadId,
+        projectId: asProjectId("project-1"),
+        kind: "side",
+        parentThreadId,
+        title: "Side chat",
+        modelSelection: {
+          instanceId: providerInstanceId,
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.forkSession.mock.calls.length === 1);
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      return (
+        readModel.threads.find((thread) => thread.id === sideThreadId)?.session?.status === "ready"
+      );
+    });
+    expect(harness.forkSession.mock.calls[0]).toMatchObject([
+      parentThreadId,
+      {
+        threadId: sideThreadId,
+        provider: "codex",
+        providerInstanceId,
+        cwd: "/tmp/provider-project",
+        title: "Side chat",
+        runtimeMode: "approval-required",
+      },
+    ]);
+    const readModel = await harness.readModel();
+    expect(readModel.threads.find((thread) => thread.id === sideThreadId)?.session).toMatchObject({
+      status: "ready",
+      providerName: "codex",
+      providerInstanceId,
+    });
   });
 
   it("injects agent instructions only into the provider-bound message", async () => {

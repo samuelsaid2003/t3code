@@ -59,11 +59,12 @@ describe("Agent Chat navigation", () => {
     const standard = shell("standard", "standard", "2026-08-29T01:00:00.000Z");
     const agent = shell("agent", "agent", "2026-08-29T02:00:00.000Z");
     const legacyRun = shell("legacy-run", "agent-run", "2026-08-29T03:00:00.000Z");
-    const all = [standard, agent, legacyRun];
+    const side = shell("side", "side", "2026-08-29T04:00:00.000Z");
+    const all = [standard, agent, legacyRun, side];
 
     expect(standardThreadShells(all)).toEqual([standard]);
     expect(agentThreadShells(all)).toEqual([agent]);
-    expect(all).toHaveLength(3);
+    expect(all).toHaveLength(4);
   });
 
   it("restores the saved Agent Chat and falls back to the most recently updated agent", () => {

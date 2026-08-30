@@ -443,9 +443,9 @@ export type ThreadLinkedPullRequest = typeof ThreadLinkedPullRequest.Type;
 
 // `agent-run` remains decodeable so databases created by the former
 // child-thread implementation still open without rewriting thread history.
-export const ThreadKind = Schema.Literals(["standard", "agent", "agent-run"]);
+export const ThreadKind = Schema.Literals(["standard", "agent", "agent-run", "side"]);
 export type ThreadKind = typeof ThreadKind.Type;
-const CreatableThreadKind = Schema.Literals(["standard", "agent"]);
+const CreatableThreadKind = Schema.Literals(["standard", "agent", "side"]);
 
 export const AgentProfile = Schema.Struct({
   instructions: TrimmedNonEmptyString,
@@ -528,6 +528,7 @@ export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   kind: Schema.optional(ThreadKind),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
   agentRoutines: Schema.optional(Schema.Array(AgentRoutine)),
   agentRuns: Schema.optional(Schema.Array(AgentRun)),
@@ -608,6 +609,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   kind: Schema.optional(ThreadKind),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
   agentRoutines: Schema.optional(Schema.Array(AgentRoutine)),
   agentRuns: Schema.optional(Schema.Array(AgentRun)),
@@ -836,6 +838,7 @@ const ThreadCreateCommand = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   kind: Schema.optional(CreatableThreadKind),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -1367,6 +1370,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   kind: Schema.optional(ThreadKind),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   agentProfile: Schema.optional(Schema.NullOr(AgentProfile)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,

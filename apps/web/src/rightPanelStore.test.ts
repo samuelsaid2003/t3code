@@ -683,6 +683,61 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("opens and reactivates one side-chat surface for a child thread", () => {
+    const sideThreadId = ThreadId.make("side-child");
+    useRightPanelStore.getState().openSideChat(refA, sideThreadId);
+    useRightPanelStore.getState().openBrowser(refA, "tab-a");
+    useRightPanelStore.getState().openSideChat(refA, sideThreadId);
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "side-chat:side-child",
+      surfaces: [
+        {
+          id: "side-chat:side-child",
+          kind: "side-chat",
+          resourceId: sideThreadId,
+        },
+        { id: "browser:tab-a", kind: "preview", resourceId: "tab-a" },
+      ],
+    });
+  });
+
+  it("keeps valid persisted side chats and drops malformed descriptors", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "side-chat:side-child",
+            surfaces: [
+              {
+                id: "side-chat:side-child",
+                kind: "side-chat",
+                resourceId: "side-child",
+              },
+              { id: "side-chat:wrong", kind: "side-chat", resourceId: "other-child" },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "side-chat:side-child",
+          surfaces: [
+            {
+              id: "side-chat:side-child",
+              kind: "side-chat",
+              resourceId: "side-child",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("reconciles browser surfaces without deleting other surface kinds", () => {
     useRightPanelStore.getState().openTerminal(refA, "term-1");
     useRightPanelStore.getState().openBrowser(refA, "tab-a");

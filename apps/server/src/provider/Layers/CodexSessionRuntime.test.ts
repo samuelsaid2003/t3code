@@ -775,12 +775,124 @@ describe("isRecoverableThreadResumeError", () => {
 });
 
 describe("openCodexThread", () => {
+  it.effect("forks provider history and injects the side-conversation boundary", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ method: string; payload: unknown }> = [];
+      const forked = makeThreadOpenResponse("side-provider-thread");
+      const client = {
+        request: <
+          M extends "thread/start" | "thread/resume" | "thread/fork" | "thread/inject_items",
+        >(
+          method: M,
+          payload: CodexRpc.ClientRequestParamsByMethod[M],
+        ) => {
+          calls.push({ method, payload });
+          const response = method === "thread/inject_items" ? {} : forked;
+          return Effect.succeed(response as CodexRpc.ClientRequestResponsesByMethod[M]);
+        },
+      };
+
+      const opened = yield* openCodexThread({
+        client,
+        threadId: ThreadId.make("side-thread"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: "gpt-5.3-codex",
+        serviceTier: undefined,
+        resumeThreadId: undefined,
+        forkFromThreadId: "parent-provider-thread",
+      });
+
+      NodeAssert.equal(opened.thread.id, "side-provider-thread");
+      NodeAssert.deepStrictEqual(
+        calls.map((call) => call.method),
+        ["thread/fork", "thread/inject_items"],
+      );
+      const forkPayload = calls[0]?.payload as Record<string, unknown>;
+      NodeAssert.deepStrictEqual(
+        {
+          threadId: forkPayload.threadId,
+          cwd: forkPayload.cwd,
+          model: forkPayload.model,
+          approvalPolicy: forkPayload.approvalPolicy,
+          sandbox: forkPayload.sandbox,
+          approvalsReviewer: forkPayload.approvalsReviewer,
+          ephemeral: forkPayload.ephemeral,
+        },
+        {
+          threadId: "parent-provider-thread",
+          cwd: "/tmp/project",
+          model: "gpt-5.3-codex",
+          approvalPolicy: "never",
+          sandbox: "danger-full-access",
+          approvalsReviewer: "user",
+          ephemeral: false,
+        },
+      );
+      NodeAssert.match(String(forkPayload.developerInstructions), /side conversation/i);
+      const injectPayload = calls[1]?.payload as {
+        threadId?: string;
+        items?: Array<{ content?: Array<{ text?: string }> }>;
+      };
+      NodeAssert.equal(injectPayload.threadId, "side-provider-thread");
+      NodeAssert.match(
+        String(injectPayload.items?.[0]?.content?.[0]?.text),
+        /reference context only/i,
+      );
+    }),
+  );
+
+  it.effect("fails the fork when side-boundary injection fails without starting blank", () =>
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const forked = makeThreadOpenResponse("side-provider-thread");
+      const injectionError = new CodexErrors.CodexAppServerRequestError({
+        code: -32603,
+        errorMessage: "boundary injection failed",
+      });
+      const client = {
+        request: <
+          M extends "thread/start" | "thread/resume" | "thread/fork" | "thread/inject_items",
+        >(
+          method: M,
+          _payload: CodexRpc.ClientRequestParamsByMethod[M],
+        ) => {
+          calls.push(method);
+          return method === "thread/inject_items"
+            ? Effect.fail(injectionError)
+            : Effect.succeed(forked as CodexRpc.ClientRequestResponsesByMethod[M]);
+        },
+      };
+
+      const failure = yield* Effect.flip(
+        openCodexThread({
+          client,
+          threadId: ThreadId.make("side-thread"),
+          runtimeMode: "full-access",
+          cwd: "/tmp/project",
+          requestedModel: "gpt-5.3-codex",
+          serviceTier: undefined,
+          resumeThreadId: undefined,
+          forkFromThreadId: "parent-provider-thread",
+        }),
+      );
+
+      NodeAssert.equal(failure, injectionError);
+      NodeAssert.deepStrictEqual(calls, ["thread/fork", "thread/inject_items"]);
+    }),
+  );
+
   it.effect("falls back to thread/start when resume fails recoverably", () =>
     Effect.gen(function* () {
-      const calls: Array<{ method: "thread/start" | "thread/resume"; payload: unknown }> = [];
+      const calls: Array<{
+        method: "thread/start" | "thread/resume" | "thread/fork" | "thread/inject_items";
+        payload: unknown;
+      }> = [];
       const started = makeThreadOpenResponse("fresh-thread");
       const client = {
-        request: <M extends "thread/start" | "thread/resume">(
+        request: <
+          M extends "thread/start" | "thread/resume" | "thread/fork" | "thread/inject_items",
+        >(
           method: M,
           payload: CodexRpc.ClientRequestParamsByMethod[M],
         ) => {
@@ -818,7 +930,9 @@ describe("openCodexThread", () => {
   it.effect("propagates non-recoverable resume failures", () =>
     Effect.gen(function* () {
       const client = {
-        request: <M extends "thread/start" | "thread/resume">(
+        request: <
+          M extends "thread/start" | "thread/resume" | "thread/fork" | "thread/inject_items",
+        >(
           method: M,
           _payload: CodexRpc.ClientRequestParamsByMethod[M],
         ) => {

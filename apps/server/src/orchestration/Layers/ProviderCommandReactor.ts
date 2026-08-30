@@ -55,6 +55,7 @@ type ProviderIntentEvent = Extract<
   OrchestrationEvent,
   {
     type:
+      | "thread.created"
       | "thread.meta-updated"
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
@@ -1236,6 +1237,79 @@ const make = Effect.gen(function* () {
       .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
   });
 
+  const processSideThreadCreated = Effect.fn("processSideThreadCreated")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.created" }>,
+  ) {
+    if (event.payload.kind !== "side" || event.payload.parentThreadId == null) {
+      return;
+    }
+    const thread = yield* resolveThread(event.payload.threadId);
+    const parent = yield* resolveThread(event.payload.parentThreadId);
+    if (!thread || !parent) {
+      return;
+    }
+
+    const providerInstanceId = thread.modelSelection.instanceId;
+    const codexProvider = ProviderDriverKind.make("codex");
+    yield* setThreadSession({
+      threadId: thread.id,
+      session: {
+        threadId: thread.id,
+        status: "starting",
+        providerName: codexProvider,
+        providerInstanceId,
+        runtimeMode: thread.runtimeMode,
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: event.payload.createdAt,
+      },
+      createdAt: event.payload.createdAt,
+    });
+
+    const project = yield* resolveProject(thread.projectId);
+    const cwd = resolveThreadWorkspaceCwd({
+      thread,
+      projects: project ? [project] : [],
+    });
+    yield* providerService
+      .forkSession(parent.id, {
+        threadId: thread.id,
+        provider: codexProvider,
+        providerInstanceId,
+        ...(cwd ? { cwd } : {}),
+        title: thread.title,
+        modelSelection: thread.modelSelection,
+        runtimeMode: thread.runtimeMode,
+      })
+      .pipe(
+        Effect.flatMap((session) =>
+          setThreadSession({
+            threadId: thread.id,
+            session: {
+              threadId: thread.id,
+              status: "ready",
+              providerName: session.provider,
+              providerInstanceId: session.providerInstanceId ?? providerInstanceId,
+              runtimeMode: thread.runtimeMode,
+              activeTurnId: null,
+              lastError: session.lastError ?? null,
+              updatedAt: session.updatedAt,
+            },
+            createdAt: event.payload.createdAt,
+          }),
+        ),
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : setThreadSessionErrorOnTurnStartFailure({
+                threadId: thread.id,
+                detail: formatFailureDetail(cause),
+                createdAt: event.payload.createdAt,
+              }),
+        ),
+      );
+  });
+
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-interrupt-requested" }>,
   ) {
@@ -1462,6 +1536,9 @@ const make = Effect.gen(function* () {
       eventType: event.type,
     });
     switch (event.type) {
+      case "thread.created":
+        yield* processSideThreadCreated(event);
+        return;
       case "thread.meta-updated":
         yield* threadTitleRegenerationWorker.enqueue(event);
         return;
@@ -1525,6 +1602,7 @@ const make = Effect.gen(function* () {
     );
     const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
       if (
+        event.type === "thread.created" ||
         (event.type === "thread.meta-updated" && event.payload.regenerateTitle === true) ||
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||

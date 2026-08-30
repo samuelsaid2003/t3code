@@ -7,6 +7,7 @@ import {
   GitPullRequest,
   Globe2,
   Plus,
+  MessageSquare,
   TerminalSquare,
   Volume2,
   VolumeOff,
@@ -76,12 +77,16 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddSideChat?: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  sideChatVisible?: boolean;
+  sideChatAvailable?: boolean;
+  sideChatDisabledReason?: string;
   pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
@@ -103,6 +108,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   agents: "Agents are only available from a thread.",
+  sideChat: "Side Chat requires a started Codex conversation in the desktop app.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -125,6 +131,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   agents: "Available from a thread.",
+  sideChat: "Send a Codex message first.",
 } as const;
 
 type TabContextMenuAction =
@@ -254,12 +261,16 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddSideChat: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  sideChatVisible: boolean;
+  sideChatAvailable: boolean;
+  sideChatDisabledReason?: string;
   liveAgentCount: number;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
@@ -316,6 +327,20 @@ function RightPanelEmptyState(props: {
       onClick: props.onAddPullRequest,
       badgeCount: 0,
     },
+    ...(props.sideChatVisible
+      ? [
+          {
+            label: "Side chat" as const,
+            description: "Ask about this conversation in a separate fork.",
+            icon: MessageSquare,
+            shortcut: "S" as const,
+            available: props.sideChatAvailable === true,
+            disabledReason: props.sideChatDisabledReason ?? SURFACE_UNAVAILABLE_HINTS.sideChat,
+            onClick: props.onAddSideChat ?? (() => undefined),
+            badgeCount: 0,
+          },
+        ]
+      : []),
     {
       label: "Agents",
       description: "Follow subagents and workflows.",
@@ -512,6 +537,8 @@ function surfaceTitle(
       return "Agents";
     case "agent-profile":
       return "Agent";
+    case "side-chat":
+      return "Side chat";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -599,6 +626,8 @@ function SurfaceIcon({
       return <Bot className="size-3 shrink-0" />;
     case "agent-profile":
       return <Bot className="size-3 shrink-0" />;
+    case "side-chat":
+      return <MessageSquare className="size-3 shrink-0" />;
   }
 }
 
@@ -649,6 +678,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
       onClick: props.onAddPullRequest,
     },
+    ...(props.sideChatVisible
+      ? [
+          {
+            label: "Side chat" as const,
+            icon: MessageSquare,
+            shortcut: "S" as const,
+            available: props.sideChatAvailable === true,
+            disabledReason: props.sideChatDisabledReason ?? SURFACE_DISABLED_REASONS.sideChat,
+            onClick: props.onAddSideChat ?? (() => undefined),
+          },
+        ]
+      : []),
     {
       label: "Agents",
       icon: Bot,
@@ -945,12 +986,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddAgents={props.onAddAgents}
+            onAddSideChat={props.onAddSideChat ?? (() => undefined)}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
             pullRequestAvailable={props.pullRequestAvailable}
             agentsAvailable={props.agentsAvailable}
+            sideChatVisible={props.sideChatVisible === true}
+            sideChatAvailable={props.sideChatAvailable === true}
+            {...(props.sideChatDisabledReason === undefined
+              ? {}
+              : { sideChatDisabledReason: props.sideChatDisabledReason })}
             liveAgentCount={props.liveAgentCount}
           />
         ) : (

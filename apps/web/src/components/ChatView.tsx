@@ -276,8 +276,10 @@ import {
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
+  useAllEnvironmentShellsBootstrapped,
   useProject,
   useProjects,
+  useSideThreadShell,
   useThread,
   useThreadRefs,
   useThreadShell,
@@ -581,6 +583,7 @@ type ChatViewWorkspaceProps = {
    * surfaces on the focused pane while background panes stay lightweight. */
   workspacePane?: boolean;
   workspaceFocused?: boolean;
+  presentation?: "default" | "side-panel";
 };
 
 type ChatViewProps = ChatViewWorkspaceProps &
@@ -1294,7 +1297,9 @@ function ChatViewContent(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
     workspacePane = false,
     workspaceFocused = true,
+    presentation = "default",
   } = props;
+  const sidePanelPresentation = presentation === "side-panel";
   const draftId = routeKind === "draft" ? props.draftId : null;
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
@@ -1464,11 +1469,11 @@ function ChatViewContent(props: ChatViewProps) {
         globalRef: globalComposerRef,
         previousHandle,
         nextHandle,
-        focused: workspaceFocused,
+        focused: workspaceFocused && !sidePanelPresentation,
       });
       publishedComposerHandleRef.current = nextHandle;
     },
-    [globalComposerRef, workspaceFocused],
+    [globalComposerRef, sidePanelPresentation, workspaceFocused],
   );
   useLayoutEffect(() => {
     const handle = localComposerRef.current;
@@ -1476,17 +1481,17 @@ function ChatViewContent(props: ChatViewProps) {
       globalRef: globalComposerRef,
       previousHandle: handle,
       nextHandle: handle,
-      focused: workspaceFocused,
+      focused: workspaceFocused && !sidePanelPresentation,
     });
     return () => {
       publishFocusedComposerHandle({
         globalRef: globalComposerRef,
         previousHandle: handle,
         nextHandle: null,
-        focused: workspaceFocused,
+        focused: workspaceFocused && !sidePanelPresentation,
       });
     };
-  }, [globalComposerRef, workspaceFocused]);
+  }, [globalComposerRef, sidePanelPresentation, workspaceFocused]);
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
@@ -1756,6 +1761,8 @@ function ChatViewContent(props: ChatViewProps) {
         : null,
     [activeThreadEnvironmentId, activeThreadId],
   );
+  const sideThreadShell = useSideThreadShell(activeThreadRef);
+  const allEnvironmentShellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const changeRequestSnapshotByKey = useAtomValue(threadChangeRequestSnapshotsAtom);
   const [timelineAnchor, setTimelineAnchor] = useState<{
@@ -1782,6 +1789,15 @@ function ChatViewContent(props: ChatViewProps) {
       ? selectedRightPanelSurface
       : storedActiveRightPanelSurface;
   const activeRightPanelKind = activeRightPanelSurface?.kind ?? null;
+  const activeSideThreadRef = useMemo(
+    () =>
+      activeThreadRef && activeRightPanelSurface?.kind === "side-chat"
+        ? scopeThreadRef(activeThreadRef.environmentId, activeRightPanelSurface.resourceId)
+        : null,
+    [activeRightPanelSurface, activeThreadRef],
+  );
+  const activeSideThreadShell = useThreadShell(activeSideThreadRef);
+  const [sideChatCreating, setSideChatCreating] = useState(false);
   const diffOpen = activeRightPanelKind === "diff";
   const [pullRequestTabStatuses, setPullRequestTabStatuses] = useState<
     Record<string, PullRequestTabStatus>
@@ -1828,6 +1844,7 @@ function ChatViewContent(props: ChatViewProps) {
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
   const visibleRightPanelOpen =
+    !sidePanelPresentation &&
     workspaceFocused &&
     (usesWorkspaceRightPanel ? workspaceRightPanelPortal.isOpen : rightPanelOpen);
   const canMaximizeRightPanel = visibleRightPanelOpen && !shouldUseRightPanelSheet;
@@ -3018,11 +3035,13 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  const showComposerContextStrip = shouldShowComposerContextStrip({
-    hasActiveProject: activeProject !== null,
-    isGitRepo,
-    showEnvironmentIndicator: showComposerEnvironmentIndicator,
-  });
+  const showComposerContextStrip =
+    !sidePanelPresentation &&
+    shouldShowComposerContextStrip({
+      hasActiveProject: activeProject !== null,
+      isGitRepo,
+      showEnvironmentIndicator: showComposerEnvironmentIndicator,
+    });
   const initialDiffPanelGitScope =
     gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
   const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
@@ -3652,6 +3671,59 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
   }, [activeThreadRef]);
+  const sideChatVisible = isElectron && !sidePanelPresentation;
+  const sideChatAvailable =
+    sideChatVisible &&
+    !sideChatCreating &&
+    isServerThread &&
+    activeThread?.kind !== "side" &&
+    activeThread?.session?.providerName === "codex";
+  const sideChatDisabledReason =
+    isServerThread && activeThread?.session?.providerName !== "codex"
+      ? "Send a Codex message first."
+      : undefined;
+  const createSideChatSurface = useCallback(async () => {
+    if (!activeThreadRef || !activeThread || activeThread.kind === "side") return;
+    const sideThreadId = newThreadId();
+    setSideChatCreating(true);
+    useRightPanelStore.getState().openSideChat(activeThreadRef, sideThreadId);
+    const result = await createThread({
+      environmentId: activeThread.environmentId,
+      input: {
+        threadId: sideThreadId,
+        projectId: activeThread.projectId,
+        kind: "side",
+        parentThreadId: activeThread.id,
+        title: "Side chat",
+        modelSelection: activeThread.modelSelection,
+        runtimeMode: activeThread.runtimeMode,
+        interactionMode: activeThread.interactionMode,
+        branch: activeThread.branch,
+        worktreePath: activeThread.worktreePath,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (result._tag !== "Failure") return;
+
+    setSideChatCreating(false);
+    useRightPanelStore.getState().closeSurface(activeThreadRef, `side-chat:${sideThreadId}`);
+    const error = squashAtomCommandFailure(result);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: "Could not open Side chat",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      }),
+    );
+  }, [activeThread, activeThreadRef, createThread]);
+  const addSideChatSurface = useCallback(() => {
+    if (!activeThreadRef || !sideChatAvailable) return;
+    if (sideThreadShell) {
+      useRightPanelStore.getState().openSideChat(activeThreadRef, sideThreadShell.id);
+      return;
+    }
+    void createSideChatSurface();
+  }, [activeThreadRef, createSideChatSurface, sideChatAvailable, sideThreadShell]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -3881,6 +3953,29 @@ function ChatViewContent(props: ChatViewProps) {
       threadKey === routeThreadKey ? null : routeThreadKey,
     );
   }, [canMaximizeRightPanel, routeThreadKey]);
+  useEffect(() => {
+    if (
+      sideChatCreating &&
+      activeRightPanelSurface?.kind === "side-chat" &&
+      sideThreadShell?.id === activeRightPanelSurface.resourceId
+    ) {
+      setSideChatCreating(false);
+    }
+  }, [activeRightPanelSurface, sideChatCreating, sideThreadShell?.id]);
+  useEffect(() => {
+    if (!activeThreadRef || !allEnvironmentShellsBootstrapped || sideChatCreating) return;
+    for (const surface of rightPanelState.surfaces) {
+      if (surface.kind === "side-chat" && surface.resourceId !== sideThreadShell?.id) {
+        useRightPanelStore.getState().closeSurface(activeThreadRef, surface.id);
+      }
+    }
+  }, [
+    activeThreadRef,
+    allEnvironmentShellsBootstrapped,
+    rightPanelState.surfaces,
+    sideChatCreating,
+    sideThreadShell?.id,
+  ]);
   const cleanupRightPanelSurfaces = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
@@ -3922,6 +4017,31 @@ function ChatViewContent(props: ChatViewProps) {
       setActivePreviewTab(activeThreadRef, nextActiveSurface.resourceId);
     }
   }, [activeThreadRef]);
+  const deleteSideChatSurfaces = useCallback(
+    async (surfaces: readonly RightPanelSurface[]): Promise<boolean> => {
+      if (!activeThreadRef) return false;
+      for (const surface of surfaces) {
+        if (surface.kind !== "side-chat") continue;
+        const result = await deleteThread({
+          environmentId: activeThreadRef.environmentId,
+          input: { threadId: surface.resourceId },
+        });
+        if (result._tag === "Failure") {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not close Side chat",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+          return false;
+        }
+      }
+      return true;
+    },
+    [activeThreadRef, deleteThread],
+  );
   const closeRightPanelSurface = useCallback(
     (surface: RightPanelSurface) => {
       if (!activeThreadRef) return;
@@ -3930,6 +4050,15 @@ function ChatViewContent(props: ChatViewProps) {
         useRightPanelStore.getState().closeSurface(activeThreadRef, surface.id);
         syncActivePreviewSurface();
       };
+      if (surface.kind === "side-chat") {
+        void deleteSideChatSurfaces([surface]).then((deleted) => {
+          if (deleted) {
+            setSideChatCreating(false);
+            finishClose();
+          }
+        });
+        return;
+      }
       if (surface.kind !== "terminal") {
         finishClose();
         return;
@@ -3950,6 +4079,7 @@ function ChatViewContent(props: ChatViewProps) {
       activeThreadRef,
       activeTerminalLabelsById,
       cleanupRightPanelSurfaces,
+      deleteSideChatSurfaces,
       syncActivePreviewSurface,
     ],
   );
@@ -3957,13 +4087,17 @@ function ChatViewContent(props: ChatViewProps) {
     (surface: RightPanelSurface) => {
       if (!activeThreadRef) return;
       const surfaces = rightPanelState.surfaces.filter((entry) => entry.id !== surface.id);
-      cleanupRightPanelSurfaces(surfaces);
-      useRightPanelStore.getState().closeOtherSurfaces(activeThreadRef, surface.id);
-      syncActivePreviewSurface();
+      void deleteSideChatSurfaces(surfaces).then((deleted) => {
+        if (!deleted) return;
+        cleanupRightPanelSurfaces(surfaces);
+        useRightPanelStore.getState().closeOtherSurfaces(activeThreadRef, surface.id);
+        syncActivePreviewSurface();
+      });
     },
     [
       activeThreadRef,
       cleanupRightPanelSurfaces,
+      deleteSideChatSurfaces,
       rightPanelState.surfaces,
       syncActivePreviewSurface,
     ],
@@ -3974,22 +4108,41 @@ function ChatViewContent(props: ChatViewProps) {
       const surfaceIndex = rightPanelState.surfaces.findIndex((entry) => entry.id === surface.id);
       if (surfaceIndex < 0) return;
       const surfaces = rightPanelState.surfaces.slice(surfaceIndex + 1);
-      cleanupRightPanelSurfaces(surfaces);
-      useRightPanelStore.getState().closeSurfacesToRight(activeThreadRef, surface.id);
-      syncActivePreviewSurface();
+      void deleteSideChatSurfaces(surfaces).then((deleted) => {
+        if (!deleted) return;
+        cleanupRightPanelSurfaces(surfaces);
+        useRightPanelStore.getState().closeSurfacesToRight(activeThreadRef, surface.id);
+        syncActivePreviewSurface();
+      });
     },
     [
       activeThreadRef,
       cleanupRightPanelSurfaces,
+      deleteSideChatSurfaces,
       rightPanelState.surfaces,
       syncActivePreviewSurface,
     ],
   );
   const closeAllRightPanelSurfaces = useCallback(() => {
     if (!activeThreadRef) return;
-    cleanupRightPanelSurfaces(rightPanelState.surfaces);
-    useRightPanelStore.getState().closeAllSurfaces(activeThreadRef);
-  }, [activeThreadRef, cleanupRightPanelSurfaces, rightPanelState.surfaces]);
+    void deleteSideChatSurfaces(rightPanelState.surfaces).then((deleted) => {
+      if (!deleted) return;
+      cleanupRightPanelSurfaces(rightPanelState.surfaces);
+      useRightPanelStore.getState().closeAllSurfaces(activeThreadRef);
+    });
+  }, [
+    activeThreadRef,
+    cleanupRightPanelSurfaces,
+    deleteSideChatSurfaces,
+    rightPanelState.surfaces,
+  ]);
+  const retryActiveSideChat = useCallback(async () => {
+    if (!activeThreadRef || activeRightPanelSurface?.kind !== "side-chat") return;
+    const deleted = await deleteSideChatSurfaces([activeRightPanelSurface]);
+    if (!deleted) return;
+    useRightPanelStore.getState().closeSurface(activeThreadRef, activeRightPanelSurface.id);
+    await createSideChatSurface();
+  }, [activeRightPanelSurface, activeThreadRef, createSideChatSurface, deleteSideChatSurfaces]);
   const copyRightPanelFilePath = useCallback((relativePath: string) => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
       toastManager.add(
@@ -5293,7 +5446,7 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activeThreadKey, focusComposer, terminalUiState.terminalOpen]);
 
   useEffect(() => {
-    if (!workspaceFocused) return;
+    if (!workspaceFocused || sidePanelPresentation) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
@@ -5509,6 +5662,7 @@ function ChatViewContent(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    sidePanelPresentation,
     workspaceFocused,
   ]);
 
@@ -6132,7 +6286,7 @@ function ChatViewContent(props: ChatViewProps) {
 
     let failure: AtomCommandResult<unknown, unknown> | null = null;
     // Auto-title from first message
-    if (isFirstMessage && isServerThread && activeThread.kind !== "agent") {
+    if (isFirstMessage && isServerThread && activeThread.kind === "standard") {
       const titleResult = await updateThreadMetadata({
         environmentId,
         input: {
@@ -6720,6 +6874,7 @@ function ChatViewContent(props: ChatViewProps) {
       !activeProject ||
       !activeProposedPlan ||
       !isServerThread ||
+      sidePanelPresentation ||
       isSendBusy ||
       isConnecting ||
       activeEnvironmentUnavailable ||
@@ -6869,6 +7024,7 @@ function ChatViewContent(props: ChatViewProps) {
     navigate,
     resetLocalDispatch,
     runtimeMode,
+    sidePanelPresentation,
     startThreadTurn,
     environmentId,
     composerRef,
@@ -7164,7 +7320,46 @@ function ChatViewContent(props: ChatViewProps) {
     </div>
   );
   const rightPanelContent = activeThreadRef ? (
-    activeRightPanelSurface?.kind === "preview" ? (
+    activeRightPanelSurface?.kind === "side-chat" ? (
+      activeSideThreadShell?.session?.status === "error" ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">Side chat could not start</h3>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+              {activeSideThreadShell.session.lastError ?? "Codex could not fork this conversation."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => void retryActiveSideChat()}>
+              Retry
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => closeRightPanelSurface(activeRightPanelSurface)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      ) : activeSideThreadShell === null ||
+        activeSideThreadShell.session === null ||
+        activeSideThreadShell.session.status === "idle" ||
+        activeSideThreadShell.session.status === "starting" ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground">
+          Preparing Side chat…
+        </div>
+      ) : (
+        <ChatViewContent
+          key={activeRightPanelSurface.resourceId}
+          environmentId={activeThreadRef.environmentId}
+          threadId={activeRightPanelSurface.resourceId}
+          routeKind="server"
+          presentation="side-panel"
+          reserveTitleBarControlInset={false}
+        />
+      )
+    ) : activeRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
         <PreviewPanel
           mode="embedded"
@@ -7306,12 +7501,16 @@ function ChatViewContent(props: ChatViewProps) {
         onAddFiles={addFilesSurface}
         onAddPullRequest={addPullRequestSurface}
         onAddAgents={addAgentsSurface}
+        onAddSideChat={addSideChatSurface}
         browserAvailable={isPreviewSupportedInRuntime()}
         terminalAvailable={activeProject !== null}
         diffAvailable={isServerThread && isGitRepo}
         filesAvailable={activeProject !== null}
         pullRequestAvailable={pullRequestSurfaceAvailable}
         agentsAvailable
+        sideChatVisible={sideChatVisible}
+        sideChatAvailable={sideChatAvailable}
+        {...(sideChatDisabledReason === undefined ? {} : { sideChatDisabledReason })}
         pullRequestStatuses={pullRequestTabStatuses}
         liveAgentCount={agentPanelModel.liveCount}
       >
@@ -7339,46 +7538,52 @@ function ChatViewContent(props: ChatViewProps) {
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}
-        <WorkspacePageHeader
-          data-chat-header
-          data-workspace-focused={workspaceFocused ? "true" : "false"}
-          electron={isElectron}
-          reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
-          className={cn(
-            "relative bg-background",
-            workspacePane && !workspaceFocused && "opacity-60",
-          )}
-        >
-          {!visibleRightPanelOpen ? panelLayoutControls : null}
-          <ChatHeader
-            {...(!supportsPullRequests || activeProjectRepository === null
-              ? {}
-              : { onOpenPullRequest: openProjectPullRequest })}
-            activeThreadEnvironmentId={activeThread.environmentId}
-            activeThreadId={activeThread.id}
-            {...(routeKind === "draft" && draftId ? { draftId } : {})}
-            activeThreadTitle={activeThread.title}
-            isServerThread={isServerThread}
-            changeRequest={activeThreadChangeRequest}
-            activeProjectName={activeProject?.title}
-            activeProjectCwd={activeProject?.workspaceRoot ?? null}
-            activeProjectFaviconPath={activeProject?.faviconPath ?? null}
-            openInCwd={gitCwd}
-            activeProjectScripts={activeProject?.scripts}
-            preferredScriptId={
-              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-            }
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            rightPanelOpen={visibleRightPanelOpen}
-            gitCwd={gitCwd}
-            onNewThreadInProject={handleNewThreadInActiveProject}
-            onRunProjectScript={runProjectScript}
-            onAddProjectScript={saveProjectScript}
-            onUpdateProjectScript={updateProjectScript}
-            onDeleteProjectScript={deleteProjectScript}
-          />
-        </WorkspacePageHeader>
+        {!sidePanelPresentation ? (
+          <WorkspacePageHeader
+            data-chat-header
+            data-workspace-focused={workspaceFocused ? "true" : "false"}
+            electron={isElectron}
+            reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
+            className={cn(
+              "relative bg-background",
+              workspacePane && !workspaceFocused && "opacity-60",
+            )}
+          >
+            {!visibleRightPanelOpen ? panelLayoutControls : null}
+            <ChatHeader
+              {...(!supportsPullRequests || activeProjectRepository === null
+                ? {}
+                : { onOpenPullRequest: openProjectPullRequest })}
+              activeThreadEnvironmentId={activeThread.environmentId}
+              activeThreadId={activeThread.id}
+              {...(routeKind === "draft" && draftId ? { draftId } : {})}
+              activeThreadTitle={activeThread.title}
+              isServerThread={isServerThread}
+              changeRequest={activeThreadChangeRequest}
+              activeProjectName={activeProject?.title}
+              activeProjectCwd={activeProject?.workspaceRoot ?? null}
+              activeProjectFaviconPath={activeProject?.faviconPath ?? null}
+              openInCwd={gitCwd}
+              activeProjectScripts={activeProject?.scripts}
+              preferredScriptId={
+                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+              }
+              keybindings={keybindings}
+              availableEditors={availableEditors}
+              rightPanelOpen={visibleRightPanelOpen}
+              gitCwd={gitCwd}
+              onNewThreadInProject={handleNewThreadInActiveProject}
+              onRunProjectScript={runProjectScript}
+              onAddProjectScript={saveProjectScript}
+              onUpdateProjectScript={updateProjectScript}
+              onDeleteProjectScript={deleteProjectScript}
+            />
+          </WorkspacePageHeader>
+        ) : (
+          <div className="border-b border-border/70 px-4 py-2 text-xs text-muted-foreground">
+            Uses context from the parent chat and shares its workspace.
+          </div>
+        )}
 
         <ThreadErrorBanner
           error={visibleThreadError}
@@ -7575,8 +7780,10 @@ function ChatViewContent(props: ChatViewProps) {
                             activePendingDraftAnswers={activePendingDraftAnswers}
                             activePendingQuestionIndex={activePendingQuestionIndex}
                             respondingRequestIds={respondingRequestIds}
-                            showPlanFollowUpPrompt={showPlanFollowUpPrompt}
-                            activeProposedPlan={activeProposedPlan}
+                            showPlanFollowUpPrompt={
+                              !sidePanelPresentation && showPlanFollowUpPrompt
+                            }
+                            activeProposedPlan={sidePanelPresentation ? null : activeProposedPlan}
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
                             runtimeMode={runtimeMode}
@@ -7796,12 +8003,16 @@ function ChatViewContent(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddAgents={addAgentsSurface}
+            onAddSideChat={addSideChatSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             agentsAvailable
+            sideChatVisible={sideChatVisible}
+            sideChatAvailable={sideChatAvailable}
+            {...(sideChatDisabledReason === undefined ? {} : { sideChatDisabledReason })}
             pullRequestStatuses={pullRequestTabStatuses}
             liveAgentCount={agentPanelModel.liveCount}
           >

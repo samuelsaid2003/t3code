@@ -186,6 +186,27 @@ function draftByKey(key: string) {
   return useComposerDraftStore.getState().draftsByThreadKey[key] ?? undefined;
 }
 
+describe("composerDraftStore setPrompt", () => {
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, ThreadId.make("thread-prompt"));
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("does not publish a store update when the prompt is unchanged", () => {
+    useComposerDraftStore.getState().setPrompt(threadRef, "same prompt");
+    const stateBefore = useComposerDraftStore.getState();
+    const listener = vi.fn();
+    const unsubscribe = useComposerDraftStore.subscribe(listener);
+
+    useComposerDraftStore.getState().setPrompt(threadRef, "same prompt");
+
+    expect(useComposerDraftStore.getState()).toBe(stateBefore);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+});
+
 describe("composerDraftStore addImages", () => {
   const threadId = ThreadId.make("thread-dedupe");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);

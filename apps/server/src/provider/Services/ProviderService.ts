@@ -46,6 +46,12 @@ export interface ProviderServiceShape {
     input: ProviderSessionStartInput,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
 
+  /** Fork a child session from another T3 thread's persisted provider cursor. */
+  readonly forkSession: (
+    sourceThreadId: ThreadId,
+    input: ProviderSessionStartInput,
+  ) => Effect.Effect<ProviderSession, ProviderServiceError>;
+
   /**
    * Send a provider turn.
    */

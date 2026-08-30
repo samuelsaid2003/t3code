@@ -46,7 +46,10 @@ import {
   ProviderValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import type {
+  ProviderAdapterForkSessionInput,
+  ProviderAdapterShape,
+} from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
@@ -110,6 +113,25 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
         resumeCursor: input.resumeCursor ?? {
           opaque: `resume-${String(input.threadId)}`,
         },
+        cwd: input.cwd ?? process.cwd(),
+        createdAt: now,
+        updatedAt: now,
+      };
+      sessions.set(session.threadId, session);
+      return session;
+    }),
+  );
+
+  const forkSession = vi.fn((input: ProviderAdapterForkSessionInput) =>
+    Effect.sync(() => {
+      const now = "2026-01-01T00:00:00.000Z";
+      const session: ProviderSession = {
+        provider,
+        providerInstanceId: input.providerInstanceId,
+        status: "ready",
+        runtimeMode: input.runtimeMode,
+        threadId: input.threadId,
+        resumeCursor: { opaque: `fork-${String(input.threadId)}` },
         cwd: input.cwd ?? process.cwd(),
         createdAt: now,
         updatedAt: now,
@@ -220,6 +242,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
       sessionModelSwitch: "in-session",
     },
     startSession,
+    ...(provider === CODEX_DRIVER ? { forkSession } : {}),
     sendTurn,
     interruptTurn,
     respondToRequest,
@@ -256,6 +279,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     emit,
     updateSession,
     startSession,
+    forkSession,
     sendTurn,
     interruptTurn,
     respondToRequest,
@@ -929,6 +953,44 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("forks from the persisted Codex cursor and persists the child binding", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      const sourceThreadId = asThreadId("fork-source");
+      const childThreadId = asThreadId("fork-child");
+      const source = yield* provider.startSession(sourceThreadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: sourceThreadId,
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+      routing.codex.forkSession.mockClear();
+
+      const child = yield* provider.forkSession(sourceThreadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: childThreadId,
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(routing.codex.forkSession.mock.calls.length, 1);
+      assert.deepEqual(
+        routing.codex.forkSession.mock.calls[0]?.[0]?.sourceResumeCursor,
+        source.resumeCursor,
+      );
+      assert.equal(child.threadId, childThreadId);
+      const persisted = yield* runtimeRepository.getByThreadId({ threadId: childThreadId });
+      assert.equal(Option.isSome(persisted), true);
+      if (Option.isSome(persisted)) {
+        assert.deepEqual(persisted.value.resumeCursor, child.resumeCursor);
+        assert.equal(persisted.value.providerInstanceId, codexInstanceId);
+      }
+    }),
+  );
+
   it.effect("routes provider operations and rollback conversation", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

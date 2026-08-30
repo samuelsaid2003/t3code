@@ -107,6 +107,7 @@ const startupDependencies = Layer.mergeAll(
   AnalyticsService.layerTest,
   Layer.succeed(ProviderService.ProviderService, {
     startSession: () => Effect.die("unused"),
+    forkSession: () => Effect.die("unused"),
     sendTurn: () => Effect.die("unused"),
     interruptTurn: () => Effect.die("unused"),
     respondToRequest: () => Effect.die("unused"),

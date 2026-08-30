@@ -33,6 +33,7 @@ export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   kind: ThreadKind,
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   agentProfile: Schema.NullOr(AgentProfile),
   agentRoutines: Schema.Array(AgentRoutine),
   agentRuns: Schema.Array(AgentRun),

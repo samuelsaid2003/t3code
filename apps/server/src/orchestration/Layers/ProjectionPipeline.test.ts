@@ -3013,6 +3013,83 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
+  it.effect("preserves side chat parent ids in shell reads", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const projectId = ProjectId.make("project-side-shell");
+      const parentThreadId = ThreadId.make("thread-side-shell-parent");
+      const childThreadId = ThreadId.make("thread-side-shell-child");
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const modelSelection = {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      };
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-side-shell-project"),
+        projectId,
+        title: "Side Shell Project",
+        workspaceRoot: "/tmp/project-side-shell",
+        defaultModelSelection: modelSelection,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-side-shell-parent"),
+        threadId: parentThreadId,
+        projectId,
+        title: "Parent",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: "main",
+        worktreePath: null,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-side-shell-session"),
+        threadId: parentThreadId,
+        session: {
+          threadId: parentThreadId,
+          status: "ready",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-side-shell-child"),
+        threadId: childThreadId,
+        projectId,
+        kind: "side",
+        parentThreadId,
+        title: "Side chat",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: "main",
+        worktreePath: null,
+        createdAt,
+      });
+
+      const childShell = Option.getOrThrow(yield* snapshotQuery.getThreadShellById(childThreadId));
+      assert.strictEqual(childShell.kind, "side");
+      assert.strictEqual(childShell.parentThreadId, parentThreadId);
+
+      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      const snapshotChild = shellSnapshot.threads.find((thread) => thread.id === childThreadId);
+      assert.strictEqual(snapshotChild?.parentThreadId, parentThreadId);
+    }),
+  );
+
   it.effect("projects persist updated scripts from project.meta.update", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
