@@ -3,6 +3,8 @@ import {
   ChatAttachment,
   CheckpointRef,
   IsoDateTime,
+  MessageDeliveryReceipt,
+  MessageExternalChannel,
   MessageId,
   NonNegativeInt,
   OrchestrationCheckpointFile,
@@ -89,6 +91,8 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
     routineRunId: Schema.NullOr(AgentRunId),
+    externalSource: Schema.NullOr(MessageExternalChannel),
+    deliveryReceipts: Schema.NullOr(Schema.fromJsonString(Schema.Array(MessageDeliveryReceipt))),
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
@@ -564,6 +568,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
+          external_source AS "externalSource",
+          delivery_receipts_json AS "deliveryReceipts",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1015,6 +1021,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
+          external_source AS "externalSource",
+          delivery_receipts_json AS "deliveryReceipts",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1186,6 +1194,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND sequence <= ${maxSequence}
           AND event_type IN (
             'thread.message-sent',
+            'thread.message-delivery-recorded',
             'thread.proposed-plan-upserted',
             'thread.activity-appended',
             'thread.turn-diff-completed',
@@ -1259,6 +1268,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
+          external_source AS "externalSource",
+          delivery_receipts_json AS "deliveryReceipts",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1602,6 +1613,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   text: row.text,
                   ...(row.routineRunId !== null ? { routineRunId: row.routineRunId } : {}),
                   ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+                  ...(row.externalSource !== null ? { externalSource: row.externalSource } : {}),
+                  ...(row.deliveryReceipts !== null
+                    ? { deliveryReceipts: row.deliveryReceipts }
+                    : {}),
                   turnId: row.turnId,
                   streaming: row.isStreaming === 1,
                   createdAt: row.createdAt,
@@ -2716,6 +2731,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             role: row.role,
             text: row.text,
             ...(row.routineRunId !== null ? { routineRunId: row.routineRunId } : {}),
+            ...(row.externalSource !== null ? { externalSource: row.externalSource } : {}),
+            ...(row.deliveryReceipts !== null ? { deliveryReceipts: row.deliveryReceipts } : {}),
             turnId: row.turnId,
             streaming: row.isStreaming === 1,
             createdAt: row.createdAt,

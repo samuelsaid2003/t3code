@@ -43,6 +43,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
+import { IconBrandSlack } from "@tabler/icons-react-native";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeInUp, type SharedValue } from "react-native-reanimated";
@@ -1090,6 +1091,12 @@ function renderFeedEntry(
             })}
           </View>
           <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
+            {message.externalSource === "slack" ? (
+              <SlackMessageProvenanceBadge
+                label="Received from Slack"
+                tintColor={iconSubtleColor}
+              />
+            ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
               {timestampLabel}
             </Text>
@@ -1152,6 +1159,9 @@ function renderFeedEntry(
         })}
         {showAssistantMeta ? (
           <View className="mt-1 flex-row items-center gap-1">
+            {message.deliveryReceipts?.some((receipt) => receipt.channel === "slack") ? (
+              <SlackMessageProvenanceBadge label="Delivered to Slack" tintColor={iconSubtleColor} />
+            ) : null}
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={message.text}
@@ -1177,6 +1187,37 @@ function renderFeedEntry(
       onCopyRow={props.onCopyWorkRow}
       onToggleRow={props.onToggleWorkRow}
     />
+  );
+}
+
+function SlackMessageProvenanceBadge(props: {
+  readonly label: "Received from Slack" | "Delivered to Slack";
+  readonly tintColor: ColorValue;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const timeoutId = setTimeout(() => setExpanded(false), 2_000);
+    return () => clearTimeout(timeoutId);
+  }, [expanded]);
+
+  return (
+    <View className="flex-row items-center rounded-md bg-adaptive-neutral-100-a70-white-a6">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={props.label}
+        accessibilityHint="Shows where this message was received or delivered"
+        hitSlop={6}
+        onPress={() => setExpanded((current) => !current)}
+        className="h-7 w-7 items-center justify-center"
+      >
+        <IconBrandSlack size={13} color={String(props.tintColor)} strokeWidth={1.8} />
+      </Pressable>
+      {expanded ? (
+        <Text className="pr-2 font-t3-medium text-xs text-foreground-muted">{props.label}</Text>
+      ) : null}
+    </View>
   );
 }
 

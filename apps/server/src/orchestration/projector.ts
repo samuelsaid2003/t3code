@@ -25,6 +25,7 @@ import {
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
+  ThreadMessageDeliveryRecordedPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
@@ -682,6 +683,9 @@ export function projectEvent(
             text: payload.text,
             ...(payload.routineRunId !== undefined ? { routineRunId: payload.routineRunId } : {}),
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
+            ...(payload.externalSource !== undefined
+              ? { externalSource: payload.externalSource }
+              : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,
@@ -711,6 +715,9 @@ export function projectEvent(
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),
+                    ...(message.externalSource !== undefined
+                      ? { externalSource: message.externalSource }
+                      : {}),
                   }
                 : entry,
             )
@@ -722,6 +729,38 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
             updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
+    case "thread.message-delivery-recorded":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadMessageDeliveryRecordedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) return nextBase;
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            messages: thread.messages.map((message) =>
+              message.id !== payload.messageId
+                ? message
+                : {
+                    ...message,
+                    deliveryReceipts: [
+                      ...(message.deliveryReceipts ?? []).filter(
+                        (receipt) => receipt.channel !== payload.receipt.channel,
+                      ),
+                      payload.receipt,
+                    ],
+                    updatedAt: payload.updatedAt,
+                  },
+            ),
+            updatedAt: payload.updatedAt,
           }),
         };
       });

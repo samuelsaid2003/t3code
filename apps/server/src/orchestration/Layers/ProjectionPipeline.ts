@@ -135,6 +135,9 @@ function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
   if (event.type === "thread.message-sent") {
     return event.payload.role === "user";
   }
+  if (event.type === "thread.message-delivery-recorded") {
+    return false;
+  }
 
   if (event.type !== "thread.activity-appended") {
     return true;
@@ -1020,6 +1023,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         }
 
         case "thread.message-sent":
+        case "thread.message-delivery-recorded":
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
@@ -1164,8 +1168,34 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 ? { routineRunId: previousMessage.routineRunId }
                 : {}),
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
+            ...(event.payload.externalSource !== undefined
+              ? { externalSource: event.payload.externalSource }
+              : previousMessage?.externalSource !== undefined
+                ? { externalSource: previousMessage.externalSource }
+                : {}),
+            ...(previousMessage?.deliveryReceipts !== undefined
+              ? { deliveryReceipts: previousMessage.deliveryReceipts }
+              : {}),
             isStreaming: event.payload.streaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.message-delivery-recorded": {
+          const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
+            messageId: event.payload.messageId,
+          });
+          if (Option.isNone(existingMessage)) return;
+          yield* projectionThreadMessageRepository.upsert({
+            ...existingMessage.value,
+            deliveryReceipts: [
+              ...(existingMessage.value.deliveryReceipts ?? []).filter(
+                (receipt) => receipt.channel !== event.payload.receipt.channel,
+              ),
+              event.payload.receipt,
+            ],
             updatedAt: event.payload.updatedAt,
           });
           return;

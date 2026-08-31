@@ -1205,6 +1205,43 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.message.delivery.record": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const message = thread.messages.find((entry) => entry.id === command.messageId);
+      if (message === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      if (
+        (message.deliveryReceipts ?? []).some(
+          (receipt) => receipt.channel === command.receipt.channel,
+        )
+      ) {
+        return [];
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.receipt.deliveredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.message-delivery-recorded",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          receipt: command.receipt,
+          updatedAt: command.receipt.deliveredAt,
+        },
+      };
+    }
+
     case "thread.turn.start": {
       const targetThread = yield* requireThread({
         readModel,
@@ -1252,6 +1289,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { routineRunId: command.message.routineRunId }
             : {}),
           attachments: command.message.attachments,
+          ...(command.message.externalSource !== undefined
+            ? { externalSource: command.message.externalSource }
+            : {}),
           turnId: null,
           streaming: false,
           createdAt: command.createdAt,

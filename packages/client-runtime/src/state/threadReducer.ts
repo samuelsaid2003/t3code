@@ -407,6 +407,9 @@ export function applyThreadDetailEvent(
         ...(event.payload.attachments !== undefined
           ? { attachments: event.payload.attachments }
           : {}),
+        ...(event.payload.externalSource !== undefined
+          ? { externalSource: event.payload.externalSource }
+          : {}),
         turnId: event.payload.turnId,
         streaming: event.payload.streaming,
         createdAt: event.payload.createdAt,
@@ -433,6 +436,9 @@ export function applyThreadDetailEvent(
                   ...(message.streaming ? {} : { updatedAt: message.updatedAt }),
                   ...(message.attachments !== undefined
                     ? { attachments: message.attachments }
+                    : {}),
+                  ...(message.externalSource !== undefined
+                    ? { externalSource: message.externalSource }
                     : {}),
                 },
           )
@@ -498,6 +504,29 @@ export function applyThreadDetailEvent(
         },
       };
     }
+
+    case "thread.message-delivery-recorded":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          messages: Arr.map(thread.messages, (message) =>
+            message.id !== event.payload.messageId
+              ? message
+              : {
+                  ...message,
+                  deliveryReceipts: [
+                    ...(message.deliveryReceipts ?? []).filter(
+                      (receipt) => receipt.channel !== event.payload.receipt.channel,
+                    ),
+                    event.payload.receipt,
+                  ],
+                  updatedAt: event.payload.updatedAt,
+                },
+          ),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
 
     // ── Session ─────────────────────────────────────────────────────
     case "thread.session-set": {

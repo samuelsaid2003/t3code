@@ -9,6 +9,8 @@
 import {
   AgentRunId,
   ChatAttachment,
+  MessageDeliveryReceipt,
+  MessageExternalChannel,
   MessageId,
   OrchestrationMessageRole,
   ThreadId,
@@ -30,6 +32,8 @@ export const ProjectionThreadMessage = Schema.Struct({
   text: Schema.String,
   routineRunId: Schema.optional(AgentRunId),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  externalSource: Schema.optional(MessageExternalChannel),
+  deliveryReceipts: Schema.optional(Schema.Array(MessageDeliveryReceipt)),
   isStreaming: Schema.Boolean,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

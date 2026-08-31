@@ -5,7 +5,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
-import { AgentRunId, ChatAttachment } from "@t3tools/contracts";
+import {
+  AgentRunId,
+  ChatAttachment,
+  MessageDeliveryReceipt,
+  MessageExternalChannel,
+} from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -22,6 +27,8 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
     routineRunId: Schema.NullOr(AgentRunId),
+    externalSource: Schema.NullOr(MessageExternalChannel),
+    deliveryReceipts: Schema.NullOr(Schema.fromJsonString(Schema.Array(MessageDeliveryReceipt))),
   }),
 );
 
@@ -39,6 +46,8 @@ function toProjectionThreadMessage(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+    ...(row.externalSource !== null ? { externalSource: row.externalSource } : {}),
+    ...(row.deliveryReceipts !== null ? { deliveryReceipts: row.deliveryReceipts } : {}),
   };
 }
 
@@ -50,6 +59,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const nextDeliveryReceiptsJson =
+        row.deliveryReceipts !== undefined ? JSON.stringify(row.deliveryReceipts) : null;
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -59,6 +70,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           text,
           routine_run_id,
           attachments_json,
+          external_source,
+          delivery_receipts_json,
           is_streaming,
           created_at,
           updated_at
@@ -78,6 +91,23 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
               WHERE message_id = ${row.messageId}
             )
           ),
+          COALESCE(
+            ${row.externalSource ?? null},
+            (
+              SELECT external_source
+              FROM projection_thread_messages
+              WHERE message_id = ${row.messageId}
+            )
+          ),
+          COALESCE(
+            ${nextDeliveryReceiptsJson},
+            (
+              SELECT delivery_receipts_json
+              FROM projection_thread_messages
+              WHERE message_id = ${row.messageId}
+            ),
+            '[]'
+          ),
           ${row.isStreaming ? 1 : 0},
           ${row.createdAt},
           ${row.updatedAt}
@@ -95,6 +125,14 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
+          ),
+          external_source = COALESCE(
+            excluded.external_source,
+            projection_thread_messages.external_source
+          ),
+          delivery_receipts_json = COALESCE(
+            excluded.delivery_receipts_json,
+            projection_thread_messages.delivery_receipts_json
           ),
           is_streaming = excluded.is_streaming,
           created_at = excluded.created_at,
@@ -116,6 +154,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           text,
           routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
+          external_source AS "externalSource",
+          delivery_receipts_json AS "deliveryReceipts",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -138,6 +178,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           text,
           routine_run_id AS "routineRunId",
           attachments_json AS "attachments",
+          external_source AS "externalSource",
+          delivery_receipts_json AS "deliveryReceipts",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"

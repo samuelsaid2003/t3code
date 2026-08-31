@@ -309,6 +309,7 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
             role: "user",
             text: "hello",
             attachments: [],
+            externalSource: "slack",
           },
           modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
             { id: "reasoningEffort", value: "high" },
@@ -325,6 +326,9 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
       const events = Array.isArray(result) ? result : [result];
       expect(events).toHaveLength(2);
       expect(events[0]?.type).toBe("thread.message-sent");
+      if (events[0]?.type === "thread.message-sent") {
+        expect(events[0].payload.externalSource).toBe("slack");
+      }
       const turnStartEvent = events[1];
       expect(turnStartEvent?.type).toBe("thread.turn-start-requested");
       expect(turnStartEvent?.causationEventId).toBe(events[0]?.eventId ?? null);
@@ -340,6 +344,37 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
         ]),
         runtimeMode: "approval-required",
       });
+
+      let withMessage = readModel;
+      for (const event of events) {
+        withMessage = yield* projectEvent(withMessage, {
+          ...event,
+          sequence: withMessage.snapshotSequence + 1,
+        });
+      }
+      const receiptCommand = {
+        type: "thread.message.delivery.record" as const,
+        commandId: CommandId.make("cmd-slack-delivery"),
+        threadId: ThreadId.make("thread-1"),
+        messageId: asMessageId("message-user-1"),
+        receipt: { channel: "slack" as const, deliveredAt: now },
+      };
+      const receipt = yield* decideOrchestrationCommand({
+        command: receiptCommand,
+        readModel: withMessage,
+      });
+      const receiptEvent = Array.isArray(receipt) ? receipt[0] : receipt;
+      expect(receiptEvent?.type).toBe("thread.message-delivery-recorded");
+      if (receiptEvent === undefined) return;
+      const withReceipt = yield* projectEvent(withMessage, {
+        ...receiptEvent,
+        sequence: withMessage.snapshotSequence + 1,
+      });
+      const duplicate = yield* decideOrchestrationCommand({
+        command: { ...receiptCommand, commandId: CommandId.make("cmd-slack-delivery-retry") },
+        readModel: withReceipt,
+      });
+      expect(duplicate).toEqual([]);
     }),
   );
 

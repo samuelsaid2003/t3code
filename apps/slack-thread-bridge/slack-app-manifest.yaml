@@ -1,0 +1,27 @@
+display_information:
+  name: The General
+  description: Samuel's TradeWiz chief of staff in T3 Code
+  background_color: "#111827"
+features:
+  bot_user:
+    display_name: The General
+    always_online: true
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - im:history
+      - im:read
+      - im:write
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.im
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

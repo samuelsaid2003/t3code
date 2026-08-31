@@ -308,6 +308,15 @@ export type AgentRunId = typeof AgentRunId.Type;
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
+export const MessageExternalChannel = Schema.Literals(["slack"]);
+export type MessageExternalChannel = typeof MessageExternalChannel.Type;
+
+export const MessageDeliveryReceipt = Schema.Struct({
+  channel: MessageExternalChannel,
+  deliveredAt: IsoDateTime,
+});
+export type MessageDeliveryReceipt = typeof MessageDeliveryReceipt.Type;
+
 export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
@@ -315,6 +324,8 @@ export const OrchestrationMessage = Schema.Struct({
   // Present only on the hidden user prompt that wakes an Agent Chat routine.
   routineRunId: Schema.optional(AgentRunId),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  externalSource: Schema.optional(MessageExternalChannel),
+  deliveryReceipts: Schema.optional(Schema.Array(MessageDeliveryReceipt)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -1036,6 +1047,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     text: Schema.String,
     routineRunId: Schema.optional(AgentRunId),
     attachments: Schema.Array(ChatAttachment),
+    externalSource: Schema.optional(MessageExternalChannel),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -1058,6 +1070,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     text: Schema.String,
     routineRunId: Schema.optional(AgentRunId),
     attachments: Schema.Array(Schema.Union([UploadChatAttachment, ChatAttachment])),
+    externalSource: Schema.optional(MessageExternalChannel),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -1074,6 +1087,14 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
+});
+
+const ThreadMessageDeliveryRecordCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.delivery.record"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  receipt: MessageDeliveryReceipt,
 });
 
 const ThreadApprovalRespondCommand = Schema.Struct({
@@ -1138,6 +1159,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
+  ThreadMessageDeliveryRecordCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
@@ -1170,6 +1192,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
+  ThreadMessageDeliveryRecordCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
@@ -1318,6 +1341,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
   "thread.message-sent",
+  "thread.message-delivery-recorded",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
   "thread.approval-response-requested",
@@ -1532,9 +1556,17 @@ export const ThreadMessageSentPayload = Schema.Struct({
   text: Schema.String,
   routineRunId: Schema.optional(AgentRunId),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  externalSource: Schema.optional(MessageExternalChannel),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadMessageDeliveryRecordedPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  receipt: MessageDeliveryReceipt,
   updatedAt: IsoDateTime,
 });
 
@@ -1767,6 +1799,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.message-sent"),
     payload: ThreadMessageSentPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.message-delivery-recorded"),
+    payload: ThreadMessageDeliveryRecordedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

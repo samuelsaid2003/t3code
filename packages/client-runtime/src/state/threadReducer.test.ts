@@ -450,6 +450,52 @@ describe("applyThreadDetailEvent", () => {
       }
     });
 
+    it("retains Slack origin and delivery provenance", () => {
+      const withSlackMessage = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 81,
+        occurredAt: "2026-04-01T07:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-sent",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("msg-slack"),
+          role: "user",
+          text: "Sent from Slack",
+          externalSource: "slack",
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-04-01T07:00:00.000Z",
+          updatedAt: "2026-04-01T07:00:00.000Z",
+        },
+      });
+      expect(withSlackMessage.kind).toBe("updated");
+      if (withSlackMessage.kind !== "updated") return;
+      expect(withSlackMessage.thread.messages[0]?.externalSource).toBe("slack");
+
+      const withReceipt = applyThreadDetailEvent(withSlackMessage.thread, {
+        ...baseEventFields,
+        sequence: 82,
+        occurredAt: "2026-04-01T07:01:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-delivery-recorded",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("msg-slack"),
+          receipt: { channel: "slack", deliveredAt: "2026-04-01T07:01:00.000Z" },
+          updatedAt: "2026-04-01T07:01:00.000Z",
+        },
+      });
+      expect(withReceipt.kind).toBe("updated");
+      if (withReceipt.kind === "updated") {
+        expect(withReceipt.thread.messages[0]?.deliveryReceipts).toEqual([
+          { channel: "slack", deliveredAt: "2026-04-01T07:01:00.000Z" },
+        ]);
+      }
+    });
+
     it("keeps latestTurn running for interim assistant messages while the session runs the turn", () => {
       const threadWithRunningSession: OrchestrationThread = {
         ...baseThread,
