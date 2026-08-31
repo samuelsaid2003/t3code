@@ -62,7 +62,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
-import { IconBrandSlack } from "@tabler/icons-react-native";
+import { IconArrowForwardUp, IconBrandSlack } from "@tabler/icons-react-native";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -205,6 +205,7 @@ export interface ThreadFeedProps {
     readonly loading: boolean;
     readonly onLoadEarlier: () => void;
   } | null;
+  readonly onForwardAssistantMessage?: (messageId: MessageId) => void;
 }
 
 function MessageAttachmentImage(props: {
@@ -1224,6 +1225,7 @@ function renderFeedEntry(
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
     readonly unsettledTurnId: TurnId | null;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
+    readonly onForwardAssistantMessage?: (messageId: MessageId) => void;
     readonly onToggleWorkGroup: (groupId: string) => void;
     readonly onToggleWorkRow: (rowId: string) => void;
     readonly onToggleTurnFold: (turnId: TurnId) => void;
@@ -1428,6 +1430,17 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
+            {props.onForwardAssistantMessage ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Forward response"
+                hitSlop={8}
+                onPress={() => props.onForwardAssistantMessage?.(message.id)}
+                className="size-7 items-center justify-center rounded-full active:bg-adaptive-neutral-200-800"
+              >
+                <IconArrowForwardUp size={14} color={String(iconSubtleColor)} strokeWidth={1.8} />
+              </Pressable>
+            ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
               {timestampLabel}
             </Text>
@@ -2328,6 +2341,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           terminalAssistantMessageIds,
           unsettledTurnId,
           onCopyWorkRow,
+          onForwardAssistantMessage: props.onForwardAssistantMessage,
           onToggleWorkGroup,
           onToggleWorkRow,
           onToggleTurnFold,
@@ -2365,6 +2379,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkRow,
       props.environmentId,
       props.onUseArtifactTemplate,
+      props.onForwardAssistantMessage,
       props.skills,
       renderMarkdownImage,
     ],

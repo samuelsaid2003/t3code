@@ -45,6 +45,9 @@ const EMPTY_THREAD_SEARCH_ATOM = Atom.make({
   matches: EMPTY_THREAD_SEARCH_MATCHES,
   isLoading: false,
 }).pipe(Atom.withLabel("web:thread-search:empty"));
+const EMPTY_THREAD_MESSAGE_SEARCH_ATOM = Atom.make(AsyncResult.success({ matches: [] })).pipe(
+  Atom.withLabel("web:thread-message-search:empty"),
+);
 
 const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
   getSearchAtom: (environmentId, query) =>
@@ -100,6 +103,46 @@ export function useThreadSearch(
   return {
     matches: isDebouncing ? EMPTY_THREAD_SEARCH_MATCHES : result.matches,
     isPending: canSearch && (isDebouncing || result.isLoading),
+  };
+}
+
+export function useThreadMessageSearch(
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  query: string,
+): {
+  readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
+  readonly isPending: boolean;
+} {
+  const normalizedQuery = query.trim();
+  const debouncedQuery = useDebouncedValue(normalizedQuery, THREAD_SEARCH_DEBOUNCE_MS);
+  const canSearch = normalizedQuery.length >= 2;
+  const settledQuery = canSearch && normalizedQuery === debouncedQuery ? debouncedQuery : null;
+  const target = useMemo(
+    () =>
+      settledQuery === null
+        ? null
+        : {
+            environmentId,
+            input: { query: settledQuery, threadId, limit: 50 },
+          },
+    [environmentId, settledQuery, threadId],
+  );
+  const result = useAtomValue(
+    target === null
+      ? EMPTY_THREAD_MESSAGE_SEARCH_ATOM
+      : orchestrationEnvironment.threadSearch(target),
+  );
+  const value = Option.getOrNull(AsyncResult.value(result));
+  const isDebouncing = canSearch && normalizedQuery !== debouncedQuery;
+  return {
+    matches:
+      isDebouncing || value === null
+        ? EMPTY_THREAD_SEARCH_MATCHES
+        : value.matches.flatMap((match) =>
+            match.messageId === undefined ? [] : [{ ...match, environmentId }],
+          ),
+    isPending: canSearch && (isDebouncing || result.waiting),
   };
 }
 

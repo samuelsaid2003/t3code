@@ -49,6 +49,8 @@ import { previewEnvironment } from "~/state/preview";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
+import { TextFindBar } from "~/components/search/TextFindBar";
+import { findPlainTextMatches } from "~/components/search/textFind";
 
 import FileBrowserPanel from "./FileBrowserPanel";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
@@ -853,6 +855,10 @@ export default function FilePreviewPanel({
     reportFailure: false,
   });
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findIndex, setFindIndex] = useState(0);
   const isHistoricalRef = selectedRef !== null;
   const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
   const useWorkspaceImagePreview = isImage && !isHistoricalRef;
@@ -895,7 +901,57 @@ export default function FilePreviewPanel({
     () => (relativePath ? fileBreadcrumbs(projectName, relativePath) : []),
     [projectName, relativePath],
   );
-  const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  const findMatches = useMemo(
+    () => findPlainTextMatches(file.data?.contents ?? "", findQuery),
+    [file.data?.contents, findQuery],
+  );
+  const activeFindMatch = findMatches[findIndex] ?? null;
+  const effectiveRevealLine = findOpen && activeFindMatch ? activeFindMatch.line : revealLine;
+  const effectiveRevealRequestId = findOpen
+    ? 1_000_000_000 + findIndex + findQuery.length * 1_000
+    : revealRequestId;
+  const onFilePostRender = useFileLineReveal(
+    relativePath,
+    effectiveRevealLine,
+    effectiveRevealRequestId,
+  );
+  useEffect(() => {
+    setFindIndex((current) => Math.max(0, Math.min(current, findMatches.length - 1)));
+  }, [findMatches.length]);
+  const moveFind = useCallback(
+    (delta: number) => {
+      if (findMatches.length === 0) return;
+      setFindIndex((current) => (current + delta + findMatches.length) % findMatches.length);
+    },
+    [findMatches.length],
+  );
+  useEffect(() => {
+    const handleFindShortcut = (event: KeyboardEvent) => {
+      const panel = panelRef.current;
+      const activeElement = document.activeElement;
+      if (
+        !panel ||
+        !(activeElement instanceof Element) ||
+        !panel.contains(activeElement) ||
+        (!event.metaKey && !event.ctrlKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        event.key.toLowerCase() !== "f"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setFindOpen(true);
+    };
+    window.addEventListener("keydown", handleFindShortcut, true);
+    return () => window.removeEventListener("keydown", handleFindShortcut, true);
+  }, []);
+  useEffect(() => {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindIndex(0);
+  }, [relativePath, selectedRef]);
   useWorkspaceMutationRefresh({
     enabled: relativePath !== null && !isImage && !selectedFilePending,
     mutationId: workspaceMutationId,
@@ -947,7 +1003,36 @@ export default function FilePreviewPanel({
   }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      onPointerDown={(event) => {
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest("button,input,textarea,select,a,[contenteditable='true']")
+        ) {
+          return;
+        }
+        event.currentTarget.focus({ preventScroll: true });
+      }}
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background outline-none"
+    >
+      {findOpen && !isImage && file.data ? (
+        <TextFindBar
+          label="Find in file"
+          placeholder="Find in file…"
+          query={findQuery}
+          matchCount={findMatches.length}
+          activeIndex={findMatches.length === 0 ? -1 : findIndex}
+          onQueryChange={(query) => {
+            setFindQuery(query);
+            setFindIndex(0);
+          }}
+          onMove={moveFind}
+          onClose={() => setFindOpen(false)}
+        />
+      ) : null}
       {relativePath ? (
         <div
           className="flex h-10 min-h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"

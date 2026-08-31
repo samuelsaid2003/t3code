@@ -135,11 +135,13 @@ const ProjectionCountsRowSchema = Schema.Struct({
 });
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
+  threadId: Schema.NullOr(ThreadId),
   limit: Schema.Int,
 });
 const ProjectionThreadSearchRow = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  messageId: MessageId,
   source: OrchestrationThreadSearchSource,
   matchText: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
@@ -815,12 +817,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const searchActiveThreadRows = SqlSchema.findAll({
     Request: ProjectionThreadSearchRequest,
     Result: ProjectionThreadSearchRow,
-    execute: ({ pattern, limit }) =>
+    execute: ({ pattern, threadId, limit }) =>
       sql`
         WITH ranked AS (
           SELECT
             threads.thread_id AS thread_id,
             threads.project_id AS project_id,
+            messages.message_id AS message_id,
             CASE messages.role
               WHEN 'user' THEN 'user'
               ELSE 'assistant'
@@ -833,7 +836,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             END AS match_rank,
             threads.updated_at AS thread_updated_at,
             ROW_NUMBER() OVER (
-              PARTITION BY threads.thread_id
+              PARTITION BY CASE
+                WHEN ${threadId} IS NULL THEN threads.thread_id
+                ELSE messages.message_id
+              END
               ORDER BY
                 CASE messages.role
                   WHEN 'user' THEN 0
@@ -850,6 +856,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           WHERE threads.deleted_at IS NULL
             AND threads.archived_at IS NULL
             AND projects.deleted_at IS NULL
+            AND (${threadId} IS NULL OR threads.thread_id = ${threadId})
             AND messages.is_streaming = 0
             AND (
               messages.role = 'user'
@@ -867,6 +874,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          message_id AS "messageId",
           source,
           match_text AS "matchText",
           message_created_at AS "messageCreatedAt"
@@ -2354,6 +2362,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     const escapedQuery = escapeLikePattern(input.query);
     const rows = yield* searchActiveThreadRows({
       pattern: `%${escapedQuery}%`,
+      threadId: input.threadId ?? null,
       limit: input.limit ?? 50,
     }).pipe(
       Effect.mapError(
@@ -2367,6 +2376,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       matches: rows.map((row) => ({
         threadId: row.threadId,
         projectId: row.projectId,
+        messageId: row.messageId,
         source: row.source,
         snippet: buildSearchSnippet(row.matchText, input.query),
         messageCreatedAt: row.messageCreatedAt,

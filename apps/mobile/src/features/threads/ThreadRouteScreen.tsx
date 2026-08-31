@@ -7,7 +7,7 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
-import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
+import { EnvironmentId, type MessageId, ThreadId, type ProjectScript } from "@t3tools/contracts";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
@@ -50,6 +50,8 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
+import { ForwardResponsesModal } from "./ForwardResponsesModal";
+import { useThreadShells } from "../../state/entities";
 import {
   ThreadGitControls,
   useThreadGitCenterHeaderItems,
@@ -217,6 +219,8 @@ function ThreadRouteContent(
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
+  const allThreadShells = useThreadShells();
+  const [forwardingMessageId, setForwardingMessageId] = useState<MessageId | null>(null);
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
   const navigation = useNavigation();
   const params = props.route.params;
@@ -823,6 +827,7 @@ function ThreadRouteContent(
           onSelectUserInputOption={requests.onSelectUserInputOption}
           onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
           onSubmitUserInput={requests.onSubmitUserInput}
+          onForwardAssistantMessage={setForwardingMessageId}
         />
       </View>
     </>
@@ -881,6 +886,15 @@ function ThreadRouteContent(
       {renderThreadRouteBody(
         Platform.OS !== "android" && !layout.usesSplitView && !usesNativeHeaderGlass,
       )}
+      {forwardingMessageId !== null && selectedThread.kind !== "side" ? (
+        <ForwardResponsesModal
+          environmentId={selectedThread.environmentId}
+          sourceThreadId={selectedThread.id}
+          sourceMessageId={forwardingMessageId}
+          threads={allThreadShells}
+          onClose={() => setForwardingMessageId(null)}
+        />
+      ) : null}
     </>
   );
 }

@@ -37,6 +37,7 @@ import {
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationSearchThreadsError,
+  OrchestrationResolveForwardSourcesError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   type ProjectId,
@@ -86,6 +87,7 @@ import {
 } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { resolveForwardSourceFromThread } from "./orchestration/forwardSources.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -1360,6 +1362,35 @@ const makeWsRpcLayer = (
                 (cause) =>
                   new OrchestrationSearchThreadsError({
                     message: "Failed to search threads",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.resolveForwardSources]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.resolveForwardSources,
+            Effect.forEach(
+              input.sources,
+              (source) =>
+                projectionSnapshotQuery.getThreadDetailById(source.threadId).pipe(
+                  Effect.map(
+                    Option.match({
+                      onNone: () => null,
+                      onSome: (thread) => resolveForwardSourceFromThread(thread, source),
+                    }),
+                  ),
+                ),
+              { concurrency: 1 },
+            ).pipe(
+              Effect.map((sources) => ({
+                sources: sources.filter((source) => source !== null),
+              })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationResolveForwardSourcesError({
+                    message: "Failed to resolve forwarded responses",
                     cause,
                   }),
               ),

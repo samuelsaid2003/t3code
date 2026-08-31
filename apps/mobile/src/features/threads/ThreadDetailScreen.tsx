@@ -146,6 +146,7 @@ export interface ThreadDetailScreenProps {
     customAnswer: string,
   ) => void;
   readonly onSubmitUserInput: () => Promise<unknown>;
+  readonly onForwardAssistantMessage?: (messageId: MessageId) => void;
   readonly showContent?: boolean;
 }
 
@@ -714,6 +715,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             skills={selectedProviderSkills}
             onUseArtifactTemplate={handleUseArtifactTemplate}
             loadEarlier={props.loadEarlier ?? null}
+            onForwardAssistantMessage={props.onForwardAssistantMessage}
           />
         </View>
       ) : (

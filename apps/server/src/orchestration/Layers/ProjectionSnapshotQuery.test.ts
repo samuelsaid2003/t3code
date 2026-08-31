@@ -298,6 +298,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
           kind: "standard",
+          parentThreadId: null,
           agentProfile: null,
           agentRoutines: [],
           agentRuns: [],
@@ -347,6 +348,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               text: "hello from projection",
               turnId: asTurnId("turn-1"),
               streaming: false,
+              deliveryReceipts: [],
               createdAt: "2026-02-24T00:00:04.000Z",
               updatedAt: "2026-02-24T00:00:05.000Z",
             },
@@ -428,6 +430,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
           kind: "standard",
+          parentThreadId: null,
           agentProfile: null,
           agentRoutines: [],
           agentRuns: [],
@@ -1829,11 +1832,21 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       const assistant = yield* snapshotQuery.searchThreads({ query: "FINAL NEEDLE" });
       assert.equal(assistant.matches[0]?.source, "assistant");
+      assert.equal(assistant.matches[0]?.messageId, asMessageId("message-final"));
 
       const deduped = yield* snapshotQuery.searchThreads({ query: "needle" });
       assert.deepStrictEqual(
         deduped.matches.map((match) => [match.threadId, match.source]),
         [[ThreadId.make("thread-active"), "user"]],
+      );
+
+      const inThread = yield* snapshotQuery.searchThreads({
+        query: "needle",
+        threadId: ThreadId.make("thread-active"),
+      });
+      assert.deepStrictEqual(
+        inThread.matches.map((match) => match.messageId),
+        [asMessageId("message-user"), asMessageId("message-final")],
       );
 
       assert.deepStrictEqual(

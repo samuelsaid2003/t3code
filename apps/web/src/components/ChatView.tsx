@@ -283,11 +283,13 @@ import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
   useAllEnvironmentShellsBootstrapped,
+  useAgentThreadShells,
   useProject,
   useProjects,
   useSideThreadShell,
   useThread,
   useThreadRefs,
+  useThreadShells,
   useThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
@@ -296,6 +298,7 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { ForwardResponsesDialog } from "./chat/ForwardResponsesDialog";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
@@ -405,6 +408,7 @@ import { assetEnvironment } from "../state/assets";
 import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
+import { useThreadMessageSearch } from "../state/queries";
 import { Button } from "./ui/button";
 import {
   AlertDialog,
@@ -426,6 +430,7 @@ import {
   serverUpdateGuidance,
 } from "../versionSkew";
 import { resolveAssetUrl, useAssetUrls } from "../assets/assetUrls";
+import { ChatSearchBar } from "./chat/ChatSearchBar";
 
 const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more files without additional text. Respond using the conversation context and the attached files.]";
@@ -1694,6 +1699,53 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
+  const standardForwardThreadShells = useThreadShells();
+  const agentForwardThreadShells = useAgentThreadShells();
+  const forwardThreadShells = useMemo(
+    () => [...standardForwardThreadShells, ...agentForwardThreadShells],
+    [agentForwardThreadShells, standardForwardThreadShells],
+  );
+  const [forwardingMessageId, setForwardingMessageId] = useState<MessageId | null>(null);
+  useEffect(() => setForwardingMessageId(null), [routeThreadKey]);
+  const sendForwardedResponses = useCallback(
+    async (destination: (typeof forwardThreadShells)[number], text: string) => {
+      const createdAt = new Date().toISOString();
+      const result = await startThreadTurn({
+        environmentId: destination.environmentId,
+        input: {
+          threadId: destination.id,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text,
+            attachments: [],
+          },
+          modelSelection: destination.modelSelection,
+          titleSeed: destination.title,
+          runtimeMode: destination.runtimeMode,
+          interactionMode: destination.interactionMode,
+          createdAt,
+        },
+      });
+      if (result._tag === "Success") return null;
+      const failure = squashAtomCommandFailure(result);
+      return failure instanceof Error ? failure.message : "Could not forward the responses.";
+    },
+    [startThreadTurn],
+  );
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
+  const [chatSearchIndex, setChatSearchIndex] = useState(0);
+  const chatSearch = useThreadMessageSearch(environmentId, threadId, chatSearchQuery);
+  const activeChatSearchMatch = chatSearch.matches[chatSearchIndex] ?? null;
+  useEffect(() => {
+    setChatSearchIndex((current) => Math.max(0, Math.min(current, chatSearch.matches.length - 1)));
+  }, [chatSearch.matches.length]);
+  useEffect(() => {
+    setChatSearchOpen(false);
+    setChatSearchQuery("");
+    setChatSearchIndex(0);
+  }, [routeThreadKey]);
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
@@ -5597,6 +5649,26 @@ function ChatViewContent(props: ChatViewProps) {
       };
 
       if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "f" &&
+        terminalFocusOwner === null
+      ) {
+        const activeElement = document.activeElement;
+        const previewFocused =
+          (activeElement instanceof Element &&
+            activeElement.closest("[data-preview-panel-mode]") !== null) ||
+          eventPathContainsSelector(event, "[data-preview-panel-mode]");
+        if (!previewFocused) {
+          event.preventDefault();
+          event.stopPropagation();
+          setChatSearchOpen(true);
+          return;
+        }
+      }
+
+      if (
         !shortcutContext.terminalFocus &&
         !shortcutContext.modelPickerOpen &&
         shouldTypeToFocusComposer(event)
@@ -7825,10 +7897,29 @@ function ChatViewContent(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">
+              {chatSearchOpen ? (
+                <ChatSearchBar
+                  query={chatSearchQuery}
+                  matches={chatSearch.matches}
+                  activeIndex={chatSearch.matches.length === 0 ? -1 : chatSearchIndex}
+                  isPending={chatSearch.isPending}
+                  onQueryChange={(query) => {
+                    setChatSearchQuery(query);
+                    setChatSearchIndex(0);
+                  }}
+                  onSelectIndex={setChatSearchIndex}
+                  onClose={() => setChatSearchOpen(false)}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 agentPanelModel={agentPanelModel}
                 onOpenAgents={addAgentsSurface}
+                onForwardAssistantMessage={
+                  routeKind === "server" && activeThread.kind !== "side"
+                    ? setForwardingMessageId
+                    : undefined
+                }
                 key={activeThread.id}
                 isWorking={isWorking}
                 workingStepLabel={workingStepLabel}
@@ -7862,6 +7953,14 @@ function ChatViewContent(props: ChatViewProps) {
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
                 loadEarlier={loadEarlierTurns}
+                searchTargetMessageId={
+                  chatSearchOpen ? (activeChatSearchMatch?.messageId ?? null) : null
+                }
+                onSearchTargetMissing={
+                  loadEarlierTurns !== null && !loadEarlierTurns.loading
+                    ? loadEarlierTurns.onLoadEarlier
+                    : undefined
+                }
               />
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
@@ -8209,6 +8308,16 @@ function ChatViewContent(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
+      {forwardingMessageId !== null && routeKind === "server" && activeThread ? (
+        <ForwardResponsesDialog
+          environmentId={activeThread.environmentId}
+          sourceThreadId={activeThread.id}
+          sourceMessageId={forwardingMessageId}
+          threads={forwardThreadShells}
+          onClose={() => setForwardingMessageId(null)}
+          onSend={sendForwardedResponses}
+        />
+      ) : null}
     </div>
   );
 }

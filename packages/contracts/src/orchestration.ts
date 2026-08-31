@@ -30,6 +30,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   searchThreads: "orchestration.searchThreads",
+  resolveForwardSources: "orchestration.resolveForwardSources",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
@@ -1971,6 +1972,9 @@ export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSo
 // scan input and response size so a search cannot monopolize that connection.
 export const OrchestrationSearchThreadsInput = Schema.Struct({
   query: TrimmedString.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
+  // When present, return individual matching messages from this thread instead
+  // of the one-result-per-thread navigation search used by the global picker.
+  threadId: Schema.optionalKey(ThreadId),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
@@ -1978,6 +1982,9 @@ export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsI
 export const OrchestrationThreadSearchMatch = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  // Older servers omit this; contextual in-thread search requires it and
+  // gracefully ignores legacy matches that cannot be scrolled precisely.
+  messageId: Schema.optionalKey(MessageId),
   source: OrchestrationThreadSearchSource,
   snippet: Schema.String.check(Schema.isMaxLength(240)),
   messageCreatedAt: Schema.NullOr(IsoDateTime),
@@ -1988,6 +1995,40 @@ export const OrchestrationSearchThreadsResult = Schema.Struct({
   matches: Schema.Array(OrchestrationThreadSearchMatch),
 });
 export type OrchestrationSearchThreadsResult = typeof OrchestrationSearchThreadsResult.Type;
+
+export const OrchestrationForwardSourceInput = Schema.Struct({
+  threadId: ThreadId,
+  // Omit to resolve the thread's latest completed final assistant response.
+  messageId: Schema.optionalKey(MessageId),
+});
+export type OrchestrationForwardSourceInput = typeof OrchestrationForwardSourceInput.Type;
+
+export const OrchestrationResolveForwardSourcesInput = Schema.Struct({
+  sources: Schema.Array(OrchestrationForwardSourceInput).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(20),
+  ),
+});
+export type OrchestrationResolveForwardSourcesInput =
+  typeof OrchestrationResolveForwardSourcesInput.Type;
+
+export const OrchestrationForwardSource = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  messageId: MessageId,
+  title: TrimmedNonEmptyString,
+  text: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationForwardSource = typeof OrchestrationForwardSource.Type;
+
+export const OrchestrationResolveForwardSourcesResult = Schema.Struct({
+  // Missing, deleted, side-chat, interim, empty, or non-final sources are
+  // intentionally omitted. The caller compares IDs and explains omissions.
+  sources: Schema.Array(OrchestrationForwardSource),
+});
+export type OrchestrationResolveForwardSourcesResult =
+  typeof OrchestrationResolveForwardSourcesResult.Type;
 
 export const OrchestrationGetWorkflowScriptInput = Schema.Struct({
   threadId: ThreadId,
@@ -2058,6 +2099,10 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationSearchThreadsInput,
     output: OrchestrationSearchThreadsResult,
   },
+  resolveForwardSources: {
+    input: OrchestrationResolveForwardSourcesInput,
+    output: OrchestrationResolveForwardSourcesResult,
+  },
   getArchivedShellSnapshot: {
     input: Schema.Struct({}),
     output: OrchestrationShellSnapshot,
@@ -2107,6 +2152,14 @@ export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass
 
 export class OrchestrationSearchThreadsError extends Schema.TaggedErrorClass<OrchestrationSearchThreadsError>()(
   "OrchestrationSearchThreadsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export class OrchestrationResolveForwardSourcesError extends Schema.TaggedErrorClass<OrchestrationResolveForwardSourcesError>()(
+  "OrchestrationResolveForwardSourcesError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),

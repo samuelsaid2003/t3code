@@ -72,6 +72,7 @@ import {
   PaintbrushIcon,
   PlayIcon,
   SearchIcon,
+  ForwardIcon,
   SlackIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -166,6 +167,7 @@ interface TimelineRowSharedState {
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   agentPanelModel: AgentPanelModel;
   onOpenAgents: () => void;
+  onForwardAssistantMessage: ((messageId: MessageId) => void) | null;
 }
 
 interface TimelineRowActivityState {
@@ -227,6 +229,7 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
 interface MessagesTimelineProps {
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
+  onForwardAssistantMessage?: ((messageId: MessageId) => void) | null | undefined;
   isWorking: boolean;
   workingStepLabel?: string | null;
   activeTurnStartedAt: string | null;
@@ -266,6 +269,8 @@ interface MessagesTimelineProps {
   topFadeEnabled?: boolean;
   /** Non-null when older turns exist beyond the loaded window. */
   loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
+  searchTargetMessageId?: MessageId | null;
+  onSearchTargetMissing?: (() => void) | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +283,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnStartedAt,
   agentPanelModel = EMPTY_AGENT_PANEL_MODEL,
   onOpenAgents = NOOP_OPEN_AGENTS,
+  onForwardAssistantMessage = null,
   listRef,
   timelineEntries,
   latestTurn,
@@ -307,6 +313,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
   loadEarlier = null,
+  searchTargetMessageId = null,
+  onSearchTargetMissing,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -457,6 +465,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  useEffect(() => {
+    if (searchTargetMessageId === null) return;
+    const index = rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === searchTargetMessageId,
+    );
+    if (index < 0) {
+      onSearchTargetMissing?.();
+      return;
+    }
+    onManualNavigation();
+    requestAnimationFrame(() => {
+      void listRef.current?.scrollToIndex({ index, animated: true, viewOffset: 64 });
+    });
+  }, [listRef, onManualNavigation, onSearchTargetMissing, rows, searchTargetMessageId]);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
@@ -558,6 +580,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleWorkGroup,
       agentPanelModel,
       onOpenAgents,
+      onForwardAssistantMessage,
     }),
     [
       timestampFormat,
@@ -577,6 +600,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleWorkGroup,
       agentPanelModel,
       onOpenAgents,
+      onForwardAssistantMessage,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -593,11 +617,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+      <div
+        className={cn(
+          "mx-auto w-full min-w-0 max-w-3xl overflow-x-clip rounded-lg",
+          item.kind === "message" &&
+            item.message.id === searchTargetMessageId &&
+            "bg-primary/5 ring-1 ring-primary/25",
+        )}
+        data-timeline-root="true"
+        data-message-id={item.kind === "message" ? item.message.id : undefined}
+      >
         <TimelineRowContent row={item} />
       </div>
     ),
-    [],
+    [searchTargetMessageId],
   );
 
   if (rows.length === 0 && !isWorking) {
@@ -1279,7 +1312,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
               <SlackMessageProvenanceBadge label="Delivered to Slack" />
             ) : null}
             <div className="flex items-center gap-2 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover/assistant:opacity-100">
-              <AssistantCopyButton row={row} />
+              <AssistantMessageActions row={row} />
               {!row.message.streaming && (
                 <Tooltip>
                   <TooltipTrigger
@@ -1332,6 +1365,41 @@ function AssistantCopyButton({ row }: { row: Extract<TimelineRow, { kind: "messa
   }
 
   return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+}
+
+function AssistantMessageActions({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const assistantCopyState = resolveAssistantMessageCopyState({
+    text: row.message.text ?? null,
+    showCopyButton: row.showAssistantCopyButton,
+    streaming: row.assistantCopyStreaming,
+  });
+  if (!assistantCopyState.visible) return null;
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <AssistantCopyButton row={row} />
+      {ctx.onForwardAssistantMessage ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                aria-label="Forward response"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => ctx.onForwardAssistantMessage?.(row.message.id)}
+              />
+            }
+          >
+            <ForwardIcon className="size-3" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Forward response</TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
 }
 
 function ProposedPlanTimelineRow({
