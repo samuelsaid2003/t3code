@@ -126,6 +126,15 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - Put durable architecture, constraints, and decisions in `docs/internals/`. Update those docs when the product changes so agents find current facts instead of abandoned intentions.
 - A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
 
+## Daily work logs
+
+- Every top-level maintainer session that changes the repository, performs a hosted action, or reaches a durable engineering conclusion must update `logs/work-logs/YYYY-MM-DD.md` for the current day in `Australia/Melbourne`. Create the file when needed and follow `logs/README.md`.
+- Record concise outcomes, important decisions, mistakes and recoveries, hosted actions, verification, blockers, and the resulting commit or release state. Group related work into milestones instead of narrating every command.
+- Never include secrets, credentials, private user data, full transcripts, raw command output, or disposable investigation details.
+- Work logs are chronological project memory, not product authority. Git is authoritative for implementation, the current docs are authoritative for behavior and operations, and GitHub owns active plans. Correct a stale log with a later dated note rather than silently rewriting history.
+- The primary agent owns the integrated entry when work is delegated. Subagents return log-ready evidence and do not edit the same daily file concurrently unless explicitly coordinated.
+- Historical backfills are allowed only when requested and supported by reliable evidence. State the evidence boundary and distinguish fork-authored work from upstream integrations.
+
 ## How it works
 
 Clients send typed WebSocket requests. The server turns them into _commands_, a pure _decider_ turns commands into persisted _events_, and a _projector_ derives the read model the UI renders. Provider CLIs run as subprocesses; per-provider _adapters_ translate their native protocols into orchestration events. Side effects run in queue-backed _reactors_ that emit _receipts_ when milestones land. Each turn ends with a _checkpoint_, a hidden git ref, so the app can diff and restore.
