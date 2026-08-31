@@ -17,6 +17,7 @@ import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
+import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
@@ -41,6 +42,7 @@ export function HomeRouteScreen() {
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
+  const handleSelectThread = useHomeThreadSelection();
 
   useEffect(() => {
     void checkForAppUpdateOnLaunch();
@@ -251,14 +253,7 @@ export function HomeRouteScreen() {
             }
             onProjectSortOrderChange={setProjectSortOrder}
             onSearchQueryChange={setSearchQuery}
-            onSelectThread={(thread) => {
-              // Settled threads are live shells: opening one is plain
-              // navigation, and sending a message un-settles server-side.
-              navigation.navigate("Thread", {
-                environmentId: thread.environmentId,
-                threadId: thread.id,
-              });
-            }}
+            onSelectThread={handleSelectThread}
             onSelectPendingTask={openPendingTask}
             onDeletePendingTask={confirmDeletePendingTask}
             onNewThreadInProject={(project) => {

@@ -46,7 +46,6 @@ const GROK_PRESENTATION = {
   displayName: "Grok",
   badgeLabel: "Early Access",
   showInteractionModeToggle: false,
-  requiresNewThreadForModelChange: true,
 } as const;
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
