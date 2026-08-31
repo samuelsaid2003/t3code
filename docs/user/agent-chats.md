@@ -10,7 +10,8 @@ Switching back restores the exact thread or draft you left.
 
 Choose **New Agent Chat** to create one, then give it a name, project, and standing instructions.
 Its chat works like any other T3 thread. Use the Agent panel on the right to revise instructions or
-add a routine.
+add a routine. The same panel has separate opt-in switches for allowing the Agent Chat to manage its
+own routines and to manage Tasks in the current environment. Both permissions start off.
 
 Routines can run once, daily, weekly, or monthly in a chosen time zone. When a routine runs, it uses
 the Agent Chat's current model, reasoning effort, access mode, standing instructions, and conversation
@@ -21,6 +22,10 @@ Routine responses appear directly in the Agent Chat without showing the schedule
 message. Tool calls, approvals, diffs, and the agent response remain visible. **Agent Runs** keeps a
 compact status history, and T3 sends a desktop notification when a run completes, fails, or needs an
 approval or answer.
+
+When **Allow routine management** is on, you can ask the Agent Chat to create, edit, pause, resume,
+delete, list, or immediately run its own routines. Those actions appear as normal tool calls and use
+the same routine history and scheduler as the Agent panel.
 
 ## On iPhone and iPad
 

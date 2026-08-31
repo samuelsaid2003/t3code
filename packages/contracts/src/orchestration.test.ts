@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  AgentProfile,
   ClientOrchestrationCommand,
   ModelSelection,
   OrchestrationCommand,
@@ -64,6 +65,23 @@ const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationComma
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
 const decodeDispatchCommandError = Schema.decodeUnknownEffect(OrchestrationDispatchCommandError);
+const decodeAgentProfile = Schema.decodeUnknownEffect(AgentProfile);
+
+it.effect("keeps granular Agent Chat permissions off for legacy profiles", () =>
+  Effect.gen(function* () {
+    const legacy = yield* decodeAgentProfile({ instructions: "Keep watch." });
+    assert.strictEqual(legacy.allowRoutineManagement, undefined);
+    assert.strictEqual(legacy.allowTaskManagement, undefined);
+
+    const enabled = yield* decodeAgentProfile({
+      instructions: "Keep watch.",
+      allowRoutineManagement: true,
+      allowTaskManagement: true,
+    });
+    assert.strictEqual(enabled.allowRoutineManagement, true);
+    assert.strictEqual(enabled.allowTaskManagement, true);
+  }),
+);
 
 it.effect("decodes a dispatch error after its bootstrap thread was deleted", () =>
   Effect.gen(function* () {

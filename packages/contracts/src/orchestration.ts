@@ -461,6 +461,10 @@ const CreatableThreadKind = Schema.Literals(["standard", "agent", "side"]);
 
 export const AgentProfile = Schema.Struct({
   instructions: TrimmedNonEmptyString,
+  // Optional on the wire so Agent Chats created before granular MCP
+  // capabilities continue to replay as both permissions disabled.
+  allowRoutineManagement: Schema.optionalKey(Schema.Boolean),
+  allowTaskManagement: Schema.optionalKey(Schema.Boolean),
 });
 export type AgentProfile = typeof AgentProfile.Type;
 

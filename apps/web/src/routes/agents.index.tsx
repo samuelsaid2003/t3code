@@ -98,7 +98,11 @@ function AgentChatsIndex() {
         threadId,
         projectId: selectedProject.id,
         kind: "agent",
-        agentProfile: { instructions: instructions.trim() },
+        agentProfile: {
+          instructions: instructions.trim(),
+          allowRoutineManagement: false,
+          allowTaskManagement: false,
+        },
         title: title.trim(),
         modelSelection,
         runtimeMode: DEFAULT_RUNTIME_MODE,

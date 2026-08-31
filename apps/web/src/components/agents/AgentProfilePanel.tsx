@@ -175,6 +175,8 @@ export function AgentProfilePanel({
 }) {
   const thread = useThread(threadRef);
   const [instructions, setInstructions] = useState("");
+  const [allowRoutineManagement, setAllowRoutineManagement] = useState(false);
+  const [allowTaskManagement, setAllowTaskManagement] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [form, setForm] = useState<RoutineFormState | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -188,12 +190,20 @@ export function AgentProfilePanel({
     reportFailure: false,
   });
   const requestRun = useAtomCommand(threadEnvironment.requestAgentRun, { reportFailure: false });
+  const stopSession = useAtomCommand(threadEnvironment.stopSession, { reportFailure: false });
 
   useEffect(() => {
     setInstructions(thread?.agentProfile?.instructions ?? "");
+    setAllowRoutineManagement(thread?.agentProfile?.allowRoutineManagement === true);
+    setAllowTaskManagement(thread?.agentProfile?.allowTaskManagement === true);
     setProfileDirty(false);
     setForm(null);
-  }, [thread?.agentProfile?.instructions, thread?.id]);
+  }, [
+    thread?.agentProfile?.allowRoutineManagement,
+    thread?.agentProfile?.allowTaskManagement,
+    thread?.agentProfile?.instructions,
+    thread?.id,
+  ]);
 
   const routines = useMemo(
     () => [...(thread?.agentRoutines ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
@@ -213,14 +223,34 @@ export function AgentProfilePanel({
     toastManager.add(stackedThreadToast({ type: "error", title, description }));
   const saveProfile = async () => {
     if (!instructions.trim()) return;
+    const capabilitiesChanged =
+      allowRoutineManagement !== (thread.agentProfile?.allowRoutineManagement === true) ||
+      allowTaskManagement !== (thread.agentProfile?.allowTaskManagement === true);
     setPendingAction("profile");
     const result = await updateProfile({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, profile: { instructions: instructions.trim() } },
+      input: {
+        threadId: threadRef.threadId,
+        profile: {
+          instructions: instructions.trim(),
+          allowRoutineManagement,
+          allowTaskManagement,
+        },
+      },
     });
     setPendingAction(null);
     const error = mutationError(result);
     if (error) return showError("Could not save instructions", error);
+    if (capabilitiesChanged && thread.session && thread.session.status !== "stopped") {
+      const stopResult = await stopSession({
+        environmentId: threadRef.environmentId,
+        input: { threadId: threadRef.threadId },
+      });
+      const stopError = mutationError(stopResult);
+      if (stopError) {
+        showError("Permissions saved", "Restart this Agent Chat session to apply its new tools.");
+      }
+    }
     setProfileDirty(false);
   };
 
@@ -316,6 +346,40 @@ export function AgentProfilePanel({
               Injected into every manual message and routine run. The visible chat stays clean.
             </FieldDescription>
           </Field>
+          <div className="mt-4 divide-y rounded-xl border bg-muted/18 px-3">
+            <label className="flex items-center justify-between gap-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">Allow routine management</span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                  Lets this Agent Chat create, edit, run, pause, and delete its own routines.
+                </span>
+              </span>
+              <Switch
+                checked={allowRoutineManagement}
+                onCheckedChange={(checked) => {
+                  setAllowRoutineManagement(checked);
+                  setProfileDirty(true);
+                }}
+                aria-label="Allow routine management"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">Allow task management</span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                  Lets this Agent Chat manage Tasks in this environment.
+                </span>
+              </span>
+              <Switch
+                checked={allowTaskManagement}
+                onCheckedChange={(checked) => {
+                  setAllowTaskManagement(checked);
+                  setProfileDirty(true);
+                }}
+                aria-label="Allow task management"
+              />
+            </label>
+          </div>
           <div className="mt-3 flex justify-end">
             <Button
               size="sm"

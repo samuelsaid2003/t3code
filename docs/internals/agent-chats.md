@@ -25,6 +25,21 @@ routine prompt is persisted as a message linked to the run so recovery remains i
 client omits that trigger message from the timeline. Assistant messages, tool activity, approvals,
 and diffs remain visible in the shared conversation.
 
+## Thread-scoped MCP capabilities
+
+The `t3-code` MCP credential is issued with a set of independent capabilities. The existing global
+browser setting contributes `preview`; an Agent Chat's profile may additionally contribute
+`agent-routines` and `task-management`. Standard and side threads never receive the latter two.
+Issuance is the authorization boundary: the provider never chooses a thread or environment ID.
+Handlers read both values from the bearer credential and re-check the current Agent profile before
+dispatching a command.
+
+Routine tools list, create, update, pause/resume, delete, and run routines by dispatching the normal
+orchestration commands. They never write projection tables directly. Friendly `HH:mm` schedules are
+normalized to the existing hour/minute domain shape, and results include the projected routine and
+`nextRunAt`. Changing either Agent capability stops an existing provider session so the next turn
+receives a freshly scoped credential.
+
 ## Projection and UI
 
 Agent metadata is projected into `projection_threads` as JSON alongside `thread_kind`. Agent threads

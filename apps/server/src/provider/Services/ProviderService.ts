@@ -33,6 +33,11 @@ import type * as Stream from "effect/Stream";
 import type { ProviderServiceError } from "../Errors.ts";
 import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
 import type { ProviderInstanceRoutingInfo } from "./ProviderAdapterRegistry.ts";
+import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
+
+export interface ProviderSessionMcpOptions {
+  readonly capabilities?: ReadonlySet<McpCapability>;
+}
 
 /**
  * ProviderServiceShape - Service API for provider session and turn orchestration.
@@ -44,6 +49,7 @@ export interface ProviderServiceShape {
   readonly startSession: (
     threadId: ThreadId,
     input: ProviderSessionStartInput,
+    options?: ProviderSessionMcpOptions,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
 
   /** Fork a child session from another T3 thread's persisted provider cursor. */

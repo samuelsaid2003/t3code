@@ -988,6 +988,8 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.deepEqual(persisted.value.resumeCursor, child.resumeCursor);
         assert.equal(persisted.value.providerInstanceId, codexInstanceId);
       }
+      yield* provider.stopSession({ threadId: childThreadId });
+      yield* provider.stopSession({ threadId: sourceThreadId });
     }),
   );
 
@@ -2273,7 +2275,13 @@ validation.layer("ProviderServiceLive validation", (it) => {
 describe("agent browser access", () => {
   const revokedThreads: Array<ThreadId> = [];
 
-  const startSessionWith = (enableAgentBrowserAccess: boolean, threadId: ThreadId) =>
+  const startSessionWith = (
+    enableAgentBrowserAccess: boolean,
+    threadId: ThreadId,
+    capabilities: ReadonlySet<
+      import("../../mcp/McpInvocationContext.ts").McpCapability
+    > = new Set(),
+  ) =>
     Effect.gen(function* () {
       const issued: Array<ThreadId> = [];
       const codex = makeFakeCodexAdapter();
@@ -2310,12 +2318,16 @@ describe("agent browser access", () => {
 
       yield* Effect.gen(function* () {
         const provider = yield* ProviderService.ProviderService;
-        return yield* provider.startSession(threadId, {
-          provider: CODEX_DRIVER,
-          providerInstanceId: codexInstanceId,
+        return yield* provider.startSession(
           threadId,
-          runtimeMode: "full-access",
-        });
+          {
+            provider: CODEX_DRIVER,
+            providerInstanceId: codexInstanceId,
+            threadId,
+            runtimeMode: "full-access",
+          },
+          { capabilities },
+        );
       }).pipe(Effect.provide(providerLayer));
 
       return issued;
@@ -2351,6 +2363,16 @@ describe("agent browser access", () => {
       const threadId = asThreadId("thread-browser-on");
 
       const issued = yield* startSessionWith(true, threadId);
+
+      assert.deepEqual(issued, [threadId]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("requests an MCP credential for granular Agent Chat capabilities", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-routines-on");
+
+      const issued = yield* startSessionWith(false, threadId, new Set(["agent-routines"]));
 
       assert.deepEqual(issued, [threadId]);
     }).pipe(Effect.provide(NodeServices.layer)),

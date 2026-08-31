@@ -49,6 +49,7 @@ import {
 } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -107,6 +108,20 @@ type ThreadTitleMessage = {
   readonly text: string;
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
 };
+
+export function mcpCapabilitiesForThread(
+  thread: Pick<OrchestrationThread, "kind" | "agentProfile">,
+): ReadonlySet<McpCapability> {
+  const capabilities = new Set<McpCapability>();
+  if (thread.kind !== "agent") return capabilities;
+  if (thread.agentProfile?.allowRoutineManagement === true) {
+    capabilities.add("agent-routines");
+  }
+  if (thread.agentProfile?.allowTaskManagement === true) {
+    capabilities.add("task-management");
+  }
+  return capabilities;
+}
 
 function formatThreadTitleSection(message: ThreadTitleMessage): string | undefined {
   if (message.role === "system") {
@@ -665,17 +680,22 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderDriverKind;
-    }) =>
-      providerService.startSession(threadId, {
+    }) => {
+      return providerService.startSession(
         threadId,
-        ...(preferredProvider ? { provider: preferredProvider } : {}),
-        providerInstanceId: desiredInstanceId,
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        ...(thread.title ? { title: thread.title } : {}),
-        modelSelection: desiredModelSelection,
-        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        runtimeMode: desiredRuntimeMode,
-      });
+        {
+          threadId,
+          ...(preferredProvider ? { provider: preferredProvider } : {}),
+          providerInstanceId: desiredInstanceId,
+          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          ...(thread.title ? { title: thread.title } : {}),
+          modelSelection: desiredModelSelection,
+          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+          runtimeMode: desiredRuntimeMode,
+        },
+        { capabilities: mcpCapabilitiesForThread(thread) },
+      );
+    };
 
     const bindSessionToThread = (session: ProviderSession) =>
       Effect.gen(function* () {

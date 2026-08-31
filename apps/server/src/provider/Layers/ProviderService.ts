@@ -57,6 +57,7 @@ import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 const isModelSelection = Schema.is(ModelSelection);
@@ -237,7 +238,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
    * Attach the `t3-code` MCP server to the session that is about to start.
    *
    * This is the only place a credential is minted, so withholding one here is
-   * what disables agent browser access everywhere: every adapter already
+   * what disables all thread-scoped agent tools: every adapter already
    * treats a missing session as "no MCP server", and the `/mcp` endpoint
    * accepts nothing but tokens issued from this path.
    */
@@ -259,9 +260,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     ),
   );
 
-  const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
+  const prepareMcpSession = (
+    threadId: ThreadId,
+    providerInstanceId: ProviderInstanceId,
+    requestedCapabilities: ReadonlySet<McpCapability> = new Set(),
+  ) =>
     Effect.gen(function* () {
-      if (!(yield* agentBrowserAccessEnabled)) {
+      const capabilities = new Set(requestedCapabilities);
+      if (yield* agentBrowserAccessEnabled) {
+        capabilities.add("preview");
+      }
+      if (capabilities.size === 0) {
         // Revoke as well as clear. Every other prepare path reaches
         // `issueActiveMcpCredential`, which revokes the thread first, so
         // skipping it here would leave a previously issued bearer token valid
@@ -272,7 +281,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
         return undefined;
       }
-      const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+      const credential = yield* issueMcpCredential({
+        threadId,
+        providerInstanceId,
+        capabilities,
+      });
       if (credential) {
         yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
       }
@@ -579,7 +592,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   });
 
   const startSession: ProviderServiceMethod<"startSession"> = Effect.fn("startSession")(
-    function* (threadId, rawInput) {
+    function* (threadId, rawInput, options) {
       const parsed = yield* decodeInputOrValidationError({
         operation: "ProviderService.startSession",
         schema: ProviderSessionStartInput,
@@ -649,7 +662,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.cwd.effective": effectiveCwd ?? "",
         });
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
-        yield* prepareMcpSession(threadId, resolvedInstanceId);
+        yield* prepareMcpSession(threadId, resolvedInstanceId, options?.capabilities);
         const session = yield* adapter
           .startSession({
             ...input,
