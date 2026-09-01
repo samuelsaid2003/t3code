@@ -10,6 +10,7 @@ import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { WorkspaceEmptyDetail } from "../layout/WorkspaceEmptyDetail";
 import { WorkspaceSidebarToolbar } from "../layout/workspace-sidebar-toolbar";
 import { checkForAppUpdateOnLaunch, startAppUpdateForegroundRecheck } from "../updates/app-updates";
@@ -203,7 +204,12 @@ export function HomeRouteScreen() {
           onThreadSortOrderChange={setThreadSortOrder}
         />
 
-        <AgentListModeControl compact mode={threadListMode} onChange={setThreadListMode} />
+        <AgentListModeControl
+          compact
+          mode={threadListMode}
+          nativeHeaderInset={Platform.OS === "ios" && NATIVE_LIQUID_GLASS_SUPPORTED}
+          onChange={setThreadListMode}
+        />
 
         {threadListMode === "tasks" ? (
           <TasksScreen compact searchQuery={searchQuery} />
