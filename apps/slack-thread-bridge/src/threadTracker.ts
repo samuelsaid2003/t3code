@@ -169,6 +169,30 @@ export class ThreadTracker {
     return await this.waitFor(resolve, timeoutMs, "T3 completed without a final assistant message");
   }
 
+  subscribeAssistantText(turnId: TurnId, listener: (text: string) => void): () => void {
+    let previousText = "";
+    const publish = () => {
+      const text = [...this.messages.values()]
+        .filter(
+          (message) =>
+            message.role === "assistant" && message.turnId === turnId && message.text.trim() !== "",
+        )
+        .toSorted(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        )
+        .map((message) => message.text)
+        .join("\n\n");
+      if (text === "" || text === previousText) return;
+      previousText = text;
+      listener(text);
+    };
+    const trackerListener: TrackerListener = () => publish();
+    this.listeners.add(trackerListener);
+    publish();
+    return () => this.listeners.delete(trackerListener);
+  }
+
   routineResponse(
     event: Extract<OrchestrationEvent, { type: "thread.agent-run-completed" }>,
   ): string {

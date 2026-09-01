@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { parseInboundSlackMessage, recordSlackDeliveryWithRetry } from "./slack.ts";
+import {
+  parseInboundSlackMessage,
+  recordSlackDeliveryWithRetry,
+  SlackResponseStream,
+} from "./slack.ts";
 
 describe("parseInboundSlackMessage", () => {
   it("accepts Samuel's direct text message", () => {
@@ -17,7 +21,12 @@ describe("parseInboundSlackMessage", () => {
         },
         "U-SAMUEL",
       ),
-    ).toEqual({ channel: "D123", sourceId: "message-1", text: "What's next?" });
+    ).toEqual({
+      channel: "D123",
+      messageTs: "1.000",
+      sourceId: "message-1",
+      text: "What's next?",
+    });
   });
 
   it("rejects other users, channels, bots and message subtypes", () => {
@@ -35,6 +44,61 @@ describe("parseInboundSlackMessage", () => {
     expect(
       parseInboundSlackMessage({ ...base, subtype: "message_changed" }, "U-SAMUEL"),
     ).toBeNull();
+  });
+});
+
+describe("SlackResponseStream", () => {
+  it("starts immediately, batches later text and finalizes one Slack message", async () => {
+    const calls: Array<{ readonly method: string; readonly input: unknown }> = [];
+    const chat = {
+      startStream: async (input: unknown) => {
+        calls.push({ method: "start", input });
+        return { ok: true, ts: "2.000" };
+      },
+      appendStream: async (input: unknown) => {
+        calls.push({ method: "append", input });
+        return { ok: true };
+      },
+      stopStream: async (input: unknown) => {
+        calls.push({ method: "stop", input });
+        return { ok: true };
+      },
+      update: async (input: unknown) => {
+        calls.push({ method: "update", input });
+        return { ok: true };
+      },
+    } as unknown as ConstructorParameters<typeof SlackResponseStream>[0];
+    const stream = new SlackResponseStream(chat, "D123", "1.000");
+
+    await stream.update("Hello");
+    await stream.update(`Hello${"a".repeat(255)}`);
+    await stream.update(`Hello${"a".repeat(256)}`);
+    await stream.finish(`Hello${"a".repeat(256)}`);
+
+    expect(calls).toEqual([
+      {
+        method: "start",
+        input: { channel: "D123", thread_ts: "1.000", markdown_text: "Hello" },
+      },
+      {
+        method: "append",
+        input: { channel: "D123", ts: "2.000", markdown_text: "a".repeat(256) },
+      },
+      { method: "stop", input: { channel: "D123", ts: "2.000" } },
+    ]);
+  });
+
+  it("rejects non-monotonic provider text instead of duplicating it", async () => {
+    const chat = {
+      startStream: async () => ({ ok: true, ts: "2.000" }),
+      appendStream: async () => ({ ok: true }),
+      stopStream: async () => ({ ok: true }),
+      update: async () => ({ ok: true }),
+    } as unknown as ConstructorParameters<typeof SlackResponseStream>[0];
+    const stream = new SlackResponseStream(chat, "D123", "1.000");
+
+    await stream.update("First version");
+    await expect(stream.update("Changed version")).rejects.toThrow("non-monotonically");
   });
 });
 

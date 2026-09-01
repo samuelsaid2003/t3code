@@ -26,7 +26,8 @@ const program = Effect.gen(function* () {
     appToken: config.slackAppToken,
     botToken: config.slackBotToken,
     allowedUserId: config.slackAllowedUserId,
-    ask: (text, sourceId) => connection.client.ask(text, sourceId),
+    ask: (text, sourceId, onAssistantText) =>
+      connection.client.ask(text, sourceId, onAssistantText),
     markDelivered: (messageId, sourceId) =>
       connection.client.recordSlackDelivery(MessageId.make(messageId), sourceId),
   });

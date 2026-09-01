@@ -40,6 +40,7 @@ export class T3ThreadClient {
   async ask(
     text: string,
     sourceId: string,
+    onAssistantText?: (text: string) => Promise<void> | void,
   ): Promise<{ readonly text: string; readonly messageId: MessageId }> {
     const messageId = MessageId.make(`slack:${sourceId}`);
     const existing = this.tracker.existingAnswerMessage(messageId);
@@ -64,12 +65,33 @@ export class T3ThreadClient {
     });
 
     const turnId = await this.tracker.waitForTurnId(messageId, this.turnTimeoutMs);
-    const completion = await this.tracker.waitForCompletion(turnId, this.turnTimeoutMs);
-    if (completion.status === "error") {
-      throw new Error("The T3 turn ended with an error.");
+    let streamUpdates = Promise.resolve();
+    let streamError: unknown;
+    const unsubscribe =
+      onAssistantText === undefined
+        ? () => undefined
+        : this.tracker.subscribeAssistantText(turnId, (assistantText) => {
+            streamUpdates = streamUpdates.then(async () => {
+              if (streamError !== undefined) return;
+              try {
+                await onAssistantText(assistantText);
+              } catch (error) {
+                streamError = error;
+              }
+            });
+          });
+    try {
+      const completion = await this.tracker.waitForCompletion(turnId, this.turnTimeoutMs);
+      if (completion.status === "error") {
+        throw new Error("The T3 turn ended with an error.");
+      }
+      const answer = await this.tracker.finalAssistantMessage(completion, 30_000);
+      await streamUpdates;
+      if (streamError !== undefined) throw streamError;
+      return { text: answer.text, messageId: answer.id };
+    } finally {
+      unsubscribe();
     }
-    const answer = await this.tracker.finalAssistantMessage(completion, 30_000);
-    return { text: answer.text, messageId: answer.id };
   }
 
   async recordSlackDelivery(messageId: MessageId, sourceId: string): Promise<void> {

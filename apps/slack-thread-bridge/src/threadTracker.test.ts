@@ -121,6 +121,8 @@ describe("ThreadTracker", () => {
       event(3, "thread.session-set", { threadId: THREAD_ID, session: session(turnId, "running") }),
     );
     expect(await turnPromise).toBe(turnId);
+    const streamedText: string[] = [];
+    const unsubscribe = tracker.subscribeAssistantText(turnId, (text) => streamedText.push(text));
 
     const assistantMessageId = MessageId.make("assistant-1");
     tracker.apply(
@@ -174,6 +176,8 @@ describe("ThreadTracker", () => {
 
     const completion = await tracker.waitForCompletion(turnId, 100);
     expect(await tracker.finalAssistantText(completion, 100)).toBe("Hello Samuel");
+    expect(streamedText).toEqual(["Hello ", "Hello Samuel"]);
+    unsubscribe();
   });
 
   it("does not assign a queued Slack message to an already-running external turn", async () => {

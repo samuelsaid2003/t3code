@@ -94,6 +94,32 @@ describe("T3ThreadClient", () => {
     expect(dispatches).toBe(0);
   });
 
+  it("forwards serialized assistant text updates before returning the final answer", async () => {
+    const tracked = tracker();
+    tracked.subscribeAssistantText = (_turnId, listener) => {
+      listener("Working");
+      listener("Working\n\nDone from the same T3 thread.");
+      return () => undefined;
+    };
+    const client = new T3ThreadClient(
+      tracked,
+      ThreadId.make("the-general-thread"),
+      1_000,
+      async () => undefined,
+    );
+    const updates: string[] = [];
+
+    await expect(
+      client.ask("Stream this", "slack-message-stream", async (text) => {
+        updates.push(text);
+      }),
+    ).resolves.toEqual({
+      text: "Done from the same T3 thread.",
+      messageId: "assistant-1",
+    });
+    expect(updates).toEqual(["Working", "Working\n\nDone from the same T3 thread."]);
+  });
+
   it("records a stable Slack delivery receipt command", async () => {
     const commands: ClientOrchestrationCommand[] = [];
     const client = new T3ThreadClient(

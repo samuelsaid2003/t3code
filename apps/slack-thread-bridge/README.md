@@ -26,7 +26,9 @@ the Mac, so no public webhook or Vercel deployment is required.
 3. Install the app to the TradeWiz workspace and copy its `xoxb-…` bot token.
 4. Copy Samuel's Slack member ID from his profile.
 
-The bot needs only `chat:write`, `im:history`, `im:read`, and `im:write`.
+The bot needs only `chat:write`, `im:history`, `im:read`, `im:write`, and
+`reactions:write`. Slack's native streaming message APIs use `chat:write`; the
+reaction scope powers the queued, streaming, delivered, and failed status marks.
 It ignores every Slack user except `SLACK_ALLOWED_USER_ID`.
 
 ## 2. Configure the bridge
@@ -101,10 +103,16 @@ If the integration is being retired rather than paused, also revoke the
   delivery idempotent.
 - The bridge tracks T3's ordered turn-start queue, so a Slack message is paired
   with its own provider turn even when another turn is already running.
-- T3's final non-streaming assistant message is posted back. Long responses are
-  split below Slack's recommended message length. A delivery marker is recorded
-  only after every chunk posts, with two bounded retries if T3 is briefly
+- T3's visible assistant text is streamed into one Slack response as it is
+  emitted, with later deltas batched
+  to stay within Slack's API limits. If native streaming fails before creating a
+  message, the bridge falls back to the existing split-message delivery. A
+  delivery marker is recorded only after the streamed message is finalized or
+  every fallback chunk posts, with two bounded retries if T3 is briefly
   unavailable.
+- Slack-originated prompts show `hourglass_flowing_sand` while queued, `eyes`
+  when assistant text starts, `white_check_mark` after delivery, and `x` after a
+  failed turn. Reaction failures are best-effort and never block the T3 turn.
 - Only scheduled Agent Chat completion and attention events are proactively
   mirrored. Ordinary turns started in T3 are not duplicated into Slack.
 - Delivery is intentionally at-least-once. A process crash after Slack accepts
