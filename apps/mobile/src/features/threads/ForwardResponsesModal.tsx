@@ -41,14 +41,14 @@ export function ForwardResponsesModal(props: ForwardResponsesModalProps) {
   const startTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const candidates = useMemo(
     () =>
-      props.threads
+      [...props.threads]
         .filter(
           (thread) =>
             thread.environmentId === props.environmentId &&
             (thread.kind === "standard" || thread.kind === "agent") &&
             thread.archivedAt === null,
         )
-        .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [props.environmentId, props.threads],
   );
   const [step, setStep] = useState<"sources" | "review">("sources");

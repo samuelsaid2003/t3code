@@ -29,9 +29,9 @@ export function TasksScreen(props: { readonly searchQuery: string; readonly comp
   const normalizedQuery = props.searchQuery.trim().toLocaleLowerCase();
   const visible = useMemo(
     () =>
-      tasks
+      [...tasks]
         .filter((task) => task.title.toLocaleLowerCase().includes(normalizedQuery))
-        .toSorted(
+        .sort(
           (left, right) =>
             left.position - right.position || left.createdAt.localeCompare(right.createdAt),
         ),

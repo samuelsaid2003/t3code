@@ -369,33 +369,48 @@ function NativeHeaderToolbarRoot(props: {
 }) {
   const navigation = useNativeStackNavigation();
   const items = useMemo(() => collectToolbarItems(props.children), [props.children]);
+  const latestItemsRef = useRef(items);
+  latestItemsRef.current = items;
+  const itemsSignature = optionsSignature(items);
+  const itemsFactory = useMemo(() => () => latestItemsRef.current, []);
+  const emptyItemsFactory = useMemo(() => () => [], []);
 
-  // Swap toolbar owners before paint so split and compact headers cannot clear each other.
+  // Refresh the native toolbar only when its semantic contents change. JSX
+  // children are recreated during navigation updates, so depending on the
+  // collected array itself makes the cleanup call setOptions recursively.
   useLayoutEffect(() => {
     if (!navigation) {
       return;
     }
     if (props.placement === "bottom") {
       navigation.setOptions({
-        unstable_headerToolbarItems: () => items,
+        unstable_headerToolbarItems: itemsFactory,
       } as NativeStackOptionsWithToolbar);
-      return () => {
-        navigation.setOptions({
-          unstable_headerToolbarItems: () => [],
-        } as NativeStackOptionsWithToolbar);
-      };
+    } else if (props.placement === "left") {
+      navigation.setOptions({ unstable_headerLeftItems: itemsFactory });
+    } else {
+      navigation.setOptions({ unstable_headerRightItems: itemsFactory });
     }
-    if (props.placement === "left") {
-      navigation.setOptions({ unstable_headerLeftItems: () => items });
-      return () => {
-        navigation.setOptions({ unstable_headerLeftItems: () => [] });
-      };
+  }, [itemsFactory, itemsSignature, navigation, props.placement]);
+
+  // Clear only when this toolbar owner actually leaves or changes placement.
+  // Item updates are handled above without tearing down the registered slot.
+  useLayoutEffect(() => {
+    if (!navigation) {
+      return;
     }
-    navigation.setOptions({ unstable_headerRightItems: () => items });
     return () => {
-      navigation.setOptions({ unstable_headerRightItems: () => [] });
+      if (props.placement === "bottom") {
+        navigation.setOptions({
+          unstable_headerToolbarItems: emptyItemsFactory,
+        } as NativeStackOptionsWithToolbar);
+      } else if (props.placement === "left") {
+        navigation.setOptions({ unstable_headerLeftItems: emptyItemsFactory });
+      } else {
+        navigation.setOptions({ unstable_headerRightItems: emptyItemsFactory });
+      }
     };
-  }, [items, navigation, props.placement]);
+  }, [emptyItemsFactory, navigation, props.placement]);
 
   return null;
 }

@@ -313,6 +313,9 @@ const config: ExpoConfig = {
       {
         ios: {
           deploymentTarget: "18.0",
+          // Expo SDK 57's precompiled module binaries can disagree with the
+          // React Native 0.86 Fabric ABI and crash while registering ExpoView.
+          usePrecompiledModules: false,
           // AppCheckCore 11.3+ includes Swift and needs module maps for these Objective-C dependencies.
           extraPods: [
             { name: "GoogleUtilities", modular_headers: true },

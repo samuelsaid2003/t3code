@@ -203,12 +203,7 @@ export function HomeRouteScreen() {
           onThreadSortOrderChange={setThreadSortOrder}
         />
 
-        <AgentListModeControl
-          compact
-          mode={threadListMode}
-          nativeHeaderInset={Platform.OS === "ios"}
-          onChange={setThreadListMode}
-        />
+        <AgentListModeControl compact mode={threadListMode} onChange={setThreadListMode} />
 
         {threadListMode === "tasks" ? (
           <TasksScreen compact searchQuery={searchQuery} />
