@@ -19,9 +19,10 @@ ticks once for each crossed row, projects a short release velocity, snaps the ch
 then replaces the current Thread route and collapses. A tap expands or collapses the same wheel;
 there is no separate picker or preview surface. Recent candidates are bounded for render cost while
 always retaining the current thread. VoiceOver exposes previous, next, and wheel activation on the
-same adjustable control. Tasks mode never mounts the notch. On supported iOS versions the resting
-tab, its outward-curving shoulders, and the expanded wheel use native Liquid Glass; older versions
-receive a translucent fallback.
+same adjustable control. Tasks mode never mounts the notch. The resting tab and the expanded wheel
+are one continuous surface: a single rounded shape that overhangs the screen edge so its visible
+corners dissolve into the edge instead of forming a floating pill. Supported iOS versions render it
+with native Liquid Glass; older versions receive a single-color translucent fallback.
 
 Home and the iPad sidebar render their brand and connection status through
 `headerTitle`, with `Threads` retained as the route title. The editor-style native

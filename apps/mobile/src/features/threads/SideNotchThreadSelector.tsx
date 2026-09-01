@@ -1,15 +1,12 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import {
-  isLiquidGlassSupported,
-  LiquidGlassContainerView,
-  LiquidGlassView,
-} from "@callstack/liquid-glass";
+import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { PlatformColor, StyleSheet, View, type AccessibilityActionEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   interpolate,
+  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -29,83 +26,42 @@ import {
   type SideNotchMode,
 } from "./side-notch-navigation";
 
-const CLOSED_HEIGHT = 58;
-const CLOSED_WIDTH = 17;
+const CLOSED_HEIGHT = 64;
+const CLOSED_WIDTH = 14;
 const EXPANDED_HEIGHT = 236;
 const EXPANDED_WIDTH = 244;
-const HANDLE_WIDTH = 30;
 const ROW_HEIGHT = 44;
-const OPEN_ANIMATION = { duration: 170 } as const;
-const SNAP_ANIMATION = { duration: 130 } as const;
-const AnimatedLiquidGlassView = Animated.createAnimatedComponent(LiquidGlassView);
+// The surface hangs past the screen edge so its right corners never show and
+// the visible left corners dissolve into the edge instead of forming a pill.
+const EDGE_OVERHANG = 40;
+const SURFACE_RADIUS = 26;
+const GESTURE_SLOP = { left: 16 } as const;
+const OPEN_ANIMATION = { duration: 170, reduceMotion: ReduceMotion.System } as const;
+const SNAP_ANIMATION = { duration: 130, reduceMotion: ReduceMotion.System } as const;
 
 function NotchSurface(props: {
   readonly children: ReactNode;
   readonly colorScheme: "light" | "dark";
-  readonly expanded: SharedValue<number>;
 }) {
-  const { expanded } = props;
-  const shoulderStyle = useAnimatedStyle(() => ({
-    opacity: 1 - expanded.value,
-    transform: [{ scale: interpolate(expanded.value, [0, 1], [1, 0.01]) }],
-  }));
-  const fallbackBackground =
-    props.colorScheme === "dark" ? "rgba(47,47,52,0.82)" : "rgba(232,232,237,0.84)";
-
   if (!isLiquidGlassSupported) {
+    const fallbackBackground =
+      props.colorScheme === "dark" ? "rgba(44,44,48,0.9)" : "rgba(235,235,240,0.9)";
     return (
-      <>
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.shoulder,
-            styles.fallbackShoulderTop,
-            { backgroundColor: fallbackBackground },
-            shoulderStyle,
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.shoulder,
-            styles.fallbackShoulderBottom,
-            { backgroundColor: fallbackBackground },
-            shoulderStyle,
-          ]}
-        />
-        <View
-          pointerEvents="none"
-          style={[styles.surface, { backgroundColor: fallbackBackground }]}
-        >
-          {props.children}
-        </View>
-      </>
+      <View pointerEvents="none" style={[styles.surface, { backgroundColor: fallbackBackground }]}>
+        {props.children}
+      </View>
     );
   }
 
   return (
-    <LiquidGlassContainerView pointerEvents="none" spacing={7} style={styles.glassCluster}>
-      <AnimatedLiquidGlassView
-        colorScheme={props.colorScheme}
-        effect="regular"
-        pointerEvents="none"
-        style={[styles.shoulder, styles.clusterShoulderTop, shoulderStyle]}
-      />
-      <AnimatedLiquidGlassView
-        colorScheme={props.colorScheme}
-        effect="regular"
-        pointerEvents="none"
-        style={[styles.shoulder, styles.clusterShoulderBottom, shoulderStyle]}
-      />
-      <LiquidGlassView
-        colorScheme={props.colorScheme}
-        effect="regular"
-        pointerEvents="none"
-        style={styles.clusterSurface}
-      >
-        {props.children}
-      </LiquidGlassView>
-    </LiquidGlassContainerView>
+    <LiquidGlassView
+      colorScheme={props.colorScheme}
+      effect="regular"
+      pointerEvents="none"
+      style={styles.surface}
+    >
+      {props.children}
+    </LiquidGlassView>
   );
 }
 
@@ -193,6 +149,7 @@ export function SideNotchThreadSelector(props: {
   const gesture = useMemo(() => {
     const pan = Gesture.Pan()
       .minDistance(5)
+      .hitSlop(GESTURE_SLOP)
       .onStart(() => {
         panActive.value = true;
         selectedIndex.value = currentIndex;
@@ -252,6 +209,7 @@ export function SideNotchThreadSelector(props: {
 
     const tap = Gesture.Tap()
       .maxDistance(8)
+      .hitSlop(GESTURE_SLOP)
       .onEnd(() => {
         expanded.value = withTiming(expanded.value > 0.5 ? 0 : 1, OPEN_ANIMATION);
       });
@@ -272,17 +230,12 @@ export function SideNotchThreadSelector(props: {
     const height = interpolate(expanded.value, [0, 1], [CLOSED_HEIGHT, EXPANDED_HEIGHT]);
     return {
       height,
+      shadowOpacity: interpolate(expanded.value, [0, 1], [0, 0.16]),
       top: (EXPANDED_HEIGHT - height) / 2,
       width: interpolate(expanded.value, [0, 1], [CLOSED_WIDTH, EXPANDED_WIDTH]),
     };
   });
   const wheelStyle = useAnimatedStyle(() => ({ opacity: expanded.value }));
-  const handleStyle = useAnimatedStyle(() => ({
-    backgroundColor:
-      colorScheme === "dark"
-        ? `rgba(255,255,255,${interpolate(expanded.value, [0, 1], [0, 0.08])})`
-        : `rgba(0,0,0,${interpolate(expanded.value, [0, 1], [0, 0.05])})`,
-  }));
 
   const handleAccessibilityAction = (event: AccessibilityActionEvent) => {
     if (event.nativeEvent.actionName === "increment") {
@@ -320,14 +273,8 @@ export function SideNotchThreadSelector(props: {
           style={[styles.notch, containerStyle]}
           testID="side-notch-thread-selector"
         >
-          <NotchSurface colorScheme={colorScheme} expanded={expanded}>
+          <NotchSurface colorScheme={colorScheme}>
             <Animated.View pointerEvents="none" style={[styles.wheel, wheelStyle]}>
-              <View
-                style={[
-                  styles.selectionTrack,
-                  colorScheme === "dark" ? styles.selectionTrackDark : styles.selectionTrackLight,
-                ]}
-              />
               {candidates.map((thread, index) => (
                 <WheelRow
                   currentIndex={currentIndex}
@@ -339,9 +286,7 @@ export function SideNotchThreadSelector(props: {
                 />
               ))}
             </Animated.View>
-            <Animated.View pointerEvents="none" style={[styles.handle, handleStyle]}>
-              <View style={styles.grabber} />
-            </Animated.View>
+            <View pointerEvents="none" style={styles.grabber} />
           </NotchSurface>
         </Animated.View>
       </GestureDetector>
@@ -360,109 +305,44 @@ const styles = StyleSheet.create({
     backgroundColor: PlatformColor("secondaryLabelColor"),
     borderRadius: 999,
     height: 20,
-    opacity: 0.62,
+    opacity: 0.55,
+    position: "absolute",
+    right: EDGE_OVERHANG + (CLOSED_WIDTH - 2) / 2,
+    top: "50%",
+    transform: [{ translateY: -10 }],
     width: 2,
-  },
-  glassCluster: {
-    bottom: -14,
-    left: -10,
-    position: "absolute",
-    right: -8,
-    top: -14,
-  },
-  clusterShoulderBottom: {
-    bottom: 0,
-    right: 0,
-  },
-  clusterShoulderTop: {
-    right: 0,
-    top: 0,
-  },
-  handle: {
-    alignItems: "center",
-    bottom: 0,
-    justifyContent: "center",
-    position: "absolute",
-    right: -6,
-    top: 0,
-    width: HANDLE_WIDTH,
   },
   notch: {
     position: "absolute",
     right: 0,
     shadowColor: "#000",
-    shadowOffset: { height: 6, width: -3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
+    shadowOffset: { height: 4, width: -2 },
+    shadowRadius: 12,
   },
   row: {
     height: ROW_HEIGHT,
     justifyContent: "center",
-    left: 12,
-    paddingHorizontal: 12,
+    left: 16,
+    paddingHorizontal: 8,
     position: "absolute",
-    right: HANDLE_WIDTH + 4,
+    right: 24,
     top: EXPANDED_HEIGHT / 2 - ROW_HEIGHT / 2,
   },
-  selectionTrack: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: ROW_HEIGHT - 4,
-    left: 10,
-    position: "absolute",
-    right: HANDLE_WIDTH + 4,
-    top: EXPANDED_HEIGHT / 2 - ROW_HEIGHT / 2 + 2,
-  },
-  selectionTrackDark: {
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  selectionTrackLight: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.58)",
-  },
-  fallbackShoulderBottom: {
-    bottom: -14,
-    right: -8,
-  },
-  fallbackShoulderTop: {
-    right: -8,
-    top: -14,
-  },
-  shoulder: {
-    borderCurve: "continuous",
-    borderRadius: 14,
-    height: 28,
-    position: "absolute",
-    width: 28,
-  },
-  clusterSurface: {
-    bottom: 14,
-    borderBottomLeftRadius: 28,
-    borderCurve: "continuous",
-    borderTopLeftRadius: 28,
-    left: 10,
-    overflow: "hidden",
-    position: "absolute",
-    right: 8,
-    top: 14,
-  },
   surface: {
-    bottom: 0,
-    borderBottomLeftRadius: 28,
     borderCurve: "continuous",
-    borderTopLeftRadius: 28,
+    borderRadius: SURFACE_RADIUS,
+    bottom: 0,
     left: 0,
     overflow: "hidden",
     position: "absolute",
-    right: 0,
+    right: -EDGE_OVERHANG,
     top: 0,
   },
   wheel: {
     bottom: 0,
     left: 0,
     position: "absolute",
-    right: 0,
+    right: EDGE_OVERHANG,
     top: 0,
   },
 });
