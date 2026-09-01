@@ -90,6 +90,7 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
+import { resolveFullscreenComposerSurfaceHeight } from "./threadComposerPresentation";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -377,6 +378,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       setLastKnownKeyboardHeight(liveKeyboardHeight);
     }
   }, [lastKnownKeyboardHeight, liveKeyboardHeight]);
+  const fullscreenComposerSurfaceHeight = resolveFullscreenComposerSurfaceHeight({
+    windowHeight,
+    keyboardHeight: liveKeyboardHeight,
+    fallbackKeyboardHeight:
+      lastKnownKeyboardHeight > 0 ? lastKnownKeyboardHeight : ESTIMATED_KEYBOARD_HEIGHT,
+    safeAreaTop: insets.top,
+    minimumSurfaceHeight: COMPOSER_EXPANDED_CHROME - 16,
+  });
   const pendingUserInputMaxHeight = derivePendingUserInputMaxHeight({
     windowHeight,
     keyboardHeight:
@@ -850,6 +859,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   draftAttachments={props.draftAttachments}
                   placeholder="Ask the repo agent, or run a command…"
                   contentMaxWidth={contentMaxWidth}
+                  fullscreenSurfaceHeight={fullscreenComposerSurfaceHeight}
                   connectionState={props.connectionStateLabel}
                   connectionError={props.connectionError}
                   environmentLabel={props.environmentLabel}

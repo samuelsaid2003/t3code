@@ -80,6 +80,10 @@ import {
   useThreadSettingsSheetPresentation,
   type NavigationWithFinishTransitioning,
 } from "./use-thread-settings-sheet-presentation";
+import {
+  FULLSCREEN_COMPOSER_EDGE_GAP,
+  resolveThreadComposerPresentation,
+} from "./threadComposerPresentation";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -99,6 +103,7 @@ export interface ThreadComposerProps {
   readonly placeholder: string;
   readonly contentMaxWidth?: number;
   readonly bottomInset?: number;
+  readonly fullscreenSurfaceHeight?: number;
   readonly connectionState: RemoteClientConnectionState;
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
@@ -302,6 +307,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const fallbackInputRef = useRef<ComposerEditorHandle>(null);
   const inputRef = props.editorRef ?? fallbackInputRef;
   const [isFocused, setIsFocused] = useState(false);
+  const [fullscreenRequested, setFullscreenRequested] = useState(false);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
     editorRef: inputRef,
     isEditorFocused: isFocused,
@@ -360,8 +366,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     voiceInput.elapsedSeconds,
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
+  const composerPresentation = resolveThreadComposerPresentation({
+    editorFocused: isFocused,
+    fullscreenRequested,
+    settingsActive: settingsSheetPresentation.isActive,
+  });
+  // Full-screen mode changes this composer's geometry only. Keeping the same
+  // native editor as first responder avoids a keyboard reload (including the
+  // transient Shift state) and lets the sticky host preserve its bottom edge.
+  const isFullscreen = composerPresentation === "fullscreen";
+  const fullscreenSurfaceHeight = Math.max(props.fullscreenSurfaceHeight ?? 140, 140);
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
-  const isExpanded = isFocused || settingsSheetPresentation.isActive;
+  const isExpanded = composerPresentation !== "collapsed";
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
   const canSend = hasContent && !voiceInput.blocksSubmission;
@@ -370,6 +386,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   useEffect(() => {
     onExpandedChange?.(isExpanded);
   }, [isExpanded, onExpandedChange]);
+
+  useEffect(() => {
+    setFullscreenRequested(false);
+  }, [props.selectedThread.id]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== "ios") return;
+    navigation.setOptions({ headerShown: !isFullscreen });
+    return () => navigation.setOptions({ headerShown: true });
+  }, [isFullscreen, navigation]);
 
   const onPressImage = useCallback(
     (uri: string) => {
@@ -394,12 +420,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [onEditorFocusChange, onExpandedChange]);
 
   const handleBlur = useCallback(() => {
+    setFullscreenRequested(false);
     setIsFocused(false);
     if (!settingsSheetPresentation.isActive) {
       onExpandedChange?.(false);
     }
     onEditorFocusChange?.(false);
   }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.isActive]);
+  const expandFullscreen = useCallback(() => {
+    setFullscreenRequested(true);
+  }, []);
+  const collapseFullscreen = useCallback(() => {
+    setFullscreenRequested(false);
+  }, []);
   const { onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
@@ -411,6 +444,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       const messageId = await onSendMessage();
       if (messageId === null) {
         return;
+      }
+      if (fullscreenRequested) {
+        collapseFullscreen();
       }
       // Sending a prompt starts agent work: arm the lock-screen card while the
       // app is foregrounded and the activity token can be registered. Armed
@@ -430,6 +466,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
+    fullscreenRequested,
+    collapseFullscreen,
     voiceInput.blocksSubmission,
   ]);
 
@@ -487,6 +525,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     settingsRoutePresentation.present(settingsRouteSession);
     settingsSheetPresentation.open();
   }, [settingsRoutePresentation.present, settingsRouteSession, settingsSheetPresentation.open]);
+  const openSettingsFromFullscreen = useCallback(() => {
+    setFullscreenRequested(false);
+    requestAnimationFrame(openSettings);
+  }, [openSettings]);
+  const openAttachmentPicker = useCallback(() => {
+    if (props.serverConfig?.environment.capabilities.fileAttachments) {
+      Alert.alert("Add attachment", undefined, [
+        { text: "Photos", onPress: () => void props.onPickDraftImages() },
+        { text: "Files", onPress: () => void props.onPickDraftFiles() },
+        { text: "Cancel", style: "cancel" },
+      ]);
+      return;
+    }
+    void props.onPickDraftImages();
+  }, [props.onPickDraftFiles, props.onPickDraftImages, props.serverConfig]);
 
   useEffect(() => {
     if (settingsSheetPresentation.isActive) {
@@ -541,9 +594,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         className="absolute inset-0 bg-linear-to-b from-screen/0 via-screen/60 to-screen/90"
         pointerEvents="none"
       />
+      {isFullscreen ? <View style={{ height: 140 }} pointerEvents="none" /> : null}
       <Animated.View
         className="relative w-full self-center"
-        style={{ maxWidth: props.contentMaxWidth }}
+        layout={COMPOSER_LAYOUT_TRANSITION}
+        style={[
+          { maxWidth: props.contentMaxWidth },
+          isFullscreen
+            ? {
+                position: "absolute",
+                bottom: FULLSCREEN_COMPOSER_EDGE_GAP,
+                left: 12,
+                right: 12,
+                height: fullscreenSurfaceHeight,
+              }
+            : undefined,
+        ]}
       >
         {!voiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
           <View className="absolute inset-x-0 bottom-full z-10 mb-2">
@@ -556,7 +622,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </View>
         ) : null}
 
-        {connectionStatus ? (
+        {connectionStatus && !isFullscreen ? (
           <ComposerConnectionStatusPill
             status={connectionStatus}
             onPress={props.onReconnectEnvironment}
@@ -565,27 +631,61 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
         <ComposerSurface
           style={
-            isExpanded
+            isFullscreen
               ? {
-                  borderRadius: 26,
-                  minHeight: 140,
+                  borderRadius: 28,
+                  height: fullscreenSurfaceHeight,
                   overflow: "hidden" as const,
                   paddingBottom: 6,
                   paddingHorizontal: 14,
                   paddingTop: 14,
                 }
-              : {
-                  // Keep the numeric radius close to the expanded card so the
-                  // shape morph stays bounded while rendering as a capsule.
-                  borderRadius: 27,
-                  overflow: "hidden" as const,
-                  paddingHorizontal: 14,
-                  paddingVertical: showsCompactDictation ? 2 : 5,
-                }
+              : isExpanded
+                ? {
+                    borderRadius: 26,
+                    minHeight: 140,
+                    overflow: "hidden" as const,
+                    paddingBottom: 6,
+                    paddingHorizontal: 14,
+                    paddingTop: 14,
+                  }
+                : {
+                    // Keep the numeric radius close to the expanded card so the
+                    // shape morph stays bounded while rendering as a capsule.
+                    borderRadius: 27,
+                    overflow: "hidden" as const,
+                    paddingHorizontal: 14,
+                    paddingVertical: showsCompactDictation ? 2 : 5,
+                  }
           }
         >
+          {isExpanded && Platform.OS === "ios" && !voiceInput.isBusy ? (
+            <Pressable
+              accessibilityHint={
+                isFullscreen ? "Returns to the ordinary composer" : "Opens a larger writing view"
+              }
+              accessibilityLabel={isFullscreen ? "Collapse composer" : "Expand composer"}
+              accessibilityRole="button"
+              className="absolute top-2.5 right-2.5 z-10 size-9 items-center justify-center rounded-full active:bg-subtle"
+              hitSlop={6}
+              onPress={isFullscreen ? collapseFullscreen : expandFullscreen}
+            >
+              <SymbolView
+                name={
+                  isFullscreen
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right"
+                }
+                size={16}
+                tintColorClassName="accent-icon-muted"
+                type="monochrome"
+              />
+            </Pressable>
+          ) : null}
           <ComposerDictationDraftContent
-            className={isExpanded ? undefined : "flex-row items-center"}
+            className={
+              isFullscreen ? "min-h-0 flex-1" : isExpanded ? undefined : "flex-row items-center"
+            }
             collapsed={showsCompactDictation}
           >
             {isExpanded ? (
@@ -602,7 +702,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               </Animated.View>
             ) : null}
             <Animated.View
-              className={isExpanded ? undefined : "min-w-0 flex-1"}
+              className={
+                isFullscreen ? "min-h-0 flex-1" : isExpanded ? undefined : "min-w-0 flex-1"
+              }
               layout={COMPOSER_LAYOUT_TRANSITION}
             >
               <ComposerEditor
@@ -625,17 +727,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 singleLineCentered={!isExpanded}
                 contentInsetVertical={isExpanded || Platform.OS === "android" ? 0 : 6}
                 style={
-                  isExpanded
+                  isFullscreen
                     ? {
-                        minHeight: 72,
-                        maxHeight: 160,
+                        flex: 1,
+                        minHeight: 0,
                         paddingHorizontal: 4,
-                        paddingVertical: 4,
+                        paddingRight: 38,
+                        paddingVertical: 6,
                       }
-                    : {
-                        height: 36,
-                        paddingHorizontal: 4,
-                      }
+                    : isExpanded
+                      ? {
+                          minHeight: 72,
+                          maxHeight: 160,
+                          paddingHorizontal: 4,
+                          paddingRight: Platform.OS === "ios" ? 38 : 4,
+                          paddingVertical: 4,
+                        }
+                      : {
+                          height: 36,
+                          paddingHorizontal: 4,
+                        }
                 }
                 textStyle={{
                   ...bodyText,
@@ -743,17 +854,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     <ComposerToolbarButton
                       accessibilityLabel="Add attachment"
                       icon="plus"
-                      onPress={() => {
-                        if (props.serverConfig?.environment.capabilities.fileAttachments) {
-                          Alert.alert("Add attachment", undefined, [
-                            { text: "Photos", onPress: () => void props.onPickDraftImages() },
-                            { text: "Files", onPress: () => void props.onPickDraftFiles() },
-                            { text: "Cancel", style: "cancel" },
-                          ]);
-                          return;
-                        }
-                        void props.onPickDraftImages();
-                      }}
+                      onPress={openAttachmentPicker}
                       showChevron={false}
                     />
                     <View className="min-w-0 flex-1" style={{ maxWidth: 152 }}>
@@ -765,7 +866,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         }
                         label={currentModelOption?.label ?? currentModelSelection.model}
                         maxWidth={152}
-                        onPress={openSettings}
+                        onPress={isFullscreen ? openSettingsFromFullscreen : openSettings}
                       />
                     </View>
                   </View>
@@ -805,7 +906,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         </ComposerSurface>
 
         {/* Queue count */}
-        {props.queueCount > 0 ? (
+        {props.queueCount > 0 && !isFullscreen ? (
           <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
             <Text className="pt-2 text-xs text-foreground-muted">
               {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send

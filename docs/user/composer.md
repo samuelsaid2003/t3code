@@ -33,6 +33,13 @@ On mobile, the model picker shows each OpenCode model's upstream provider, such 
 GitHub Copilot, or OpenCode Zen, beneath its name. Search by that provider name to narrow the list
 when starting a thread or changing an existing thread's model.
 
+On iPhone, focus an existing thread's composer and tap the expand button in its upper-right corner
+to move the same draft into a full-screen writing view. The full-screen view keeps attachments,
+commands, skills, dictation, model settings, and sending available. Tap the collapse button to
+return to the thread without losing the draft, selection, or keyboard position. The conversation
+remains underneath the expanded writing surface and returns as the surface collapses. Sending
+returns to the thread automatically.
+
 ## Prompt stash
 
 Use the default shortcut, `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux, to stash the current
