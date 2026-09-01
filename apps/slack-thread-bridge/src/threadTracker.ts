@@ -304,6 +304,14 @@ export class ThreadTracker {
     const existing = this.messages.get(incoming.id);
     if (existing === undefined) {
       this.messages.set(incoming.id, incoming);
+      if (
+        incoming.role === "user" &&
+        incoming.externalSource === "slack" &&
+        !this.pendingStartMessageIds.includes(incoming.id) &&
+        !this.turnByMessageId.has(incoming.id)
+      ) {
+        this.pendingStartMessageIds.push(incoming.id);
+      }
       return;
     }
     this.messages.set(incoming.id, {

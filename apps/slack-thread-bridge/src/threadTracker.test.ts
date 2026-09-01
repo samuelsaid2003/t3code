@@ -105,12 +105,16 @@ describe("ThreadTracker", () => {
     const turnId = TurnId.make("turn-1");
     const turnPromise = tracker.waitForTurnId(messageId, 100);
     tracker.apply(
-      event(2, "thread.turn-start-requested", {
+      event(2, "thread.message-sent", {
         threadId: THREAD_ID,
         messageId,
-        runtimeMode: "full-access",
-        interactionMode: "default",
+        role: "user",
+        text: "Hello from Slack",
+        turnId: null,
+        streaming: false,
+        externalSource: "slack",
         createdAt: BASE_TIME,
+        updatedAt: BASE_TIME,
       }),
     );
     tracker.apply(
@@ -180,12 +184,16 @@ describe("ThreadTracker", () => {
 
     const messageId = MessageId.make("slack:queued");
     tracker.apply(
-      event(2, "thread.turn-start-requested", {
+      event(2, "thread.message-sent", {
         threadId: THREAD_ID,
         messageId,
-        runtimeMode: "full-access",
-        interactionMode: "default",
+        role: "user",
+        text: "Queued from Slack",
+        turnId: null,
+        streaming: false,
+        externalSource: "slack",
         createdAt: BASE_TIME,
+        updatedAt: BASE_TIME,
       }),
     );
     tracker.apply(
