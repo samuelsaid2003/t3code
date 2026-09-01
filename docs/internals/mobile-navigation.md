@@ -5,11 +5,18 @@ The iOS Home and thread routes share the root native stack in
 controller lets UIKit animate the header between routes. The iPad sidebar owns
 a separate, single-screen stack; Android uses its own in-flow headers.
 
-Home and the iPad sidebar expose a native `Threads | Agents` segmented control. The mode itself is
-not persisted, so every cold launch begins in Threads unless an Agent deep link opens a chat. Search
-text is kept independently for each list. On iPad a mode change navigates directly to that mode's
-remembered selection; on iPhone it replaces only the Home list. Keep the underlying complete thread
-collection mounted in synchronization and cursor state—filter only the visual selectors.
+Home and the iPad sidebar expose a native `Threads | Agents | Tasks` segmented control. The mode
+itself is not persisted, so every cold launch begins in Threads unless an Agent deep link opens a
+chat. Search text is kept independently for each list. On iPad a conversation-mode change navigates
+directly to that mode's remembered selection; Tasks replaces the detail with its shared list. On
+iPhone the control replaces only the Home list. Keep the underlying complete thread collection
+mounted in synchronization and cursor state—filter only the visual selectors.
+
+An iOS chat detail also mounts a narrow right-safe-area notch. Its pan gesture considers only active
+standard threads or Agent Chats from the selected mode, sorted by recency. Threshold crossings
+update a three-title preview and issue one selection haptic; release replaces the current Thread
+route, while short movement cancels. A tap uses the native action sheet, and the same previous,
+next, and picker operations are exposed as VoiceOver actions. Tasks mode never mounts the notch.
 
 Home and the iPad sidebar render their brand and connection status through
 `headerTitle`, with `Threads` retained as the route title. The editor-style native

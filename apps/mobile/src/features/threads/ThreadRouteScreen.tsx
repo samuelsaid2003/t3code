@@ -51,6 +51,7 @@ import {
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import { ForwardResponsesModal } from "./ForwardResponsesModal";
+import { SideNotchThreadSelector } from "./SideNotchThreadSelector";
 import { useThreadShells } from "../../state/entities";
 import {
   ThreadGitControls,
@@ -188,6 +189,7 @@ function ThreadRouteContent(
     panes,
     recordOpenedThread,
     showAuxiliaryPane,
+    threadListMode,
     toggleAuxiliaryPane,
     togglePrimarySidebar,
   } = useAdaptiveWorkspaceLayout();
@@ -886,6 +888,21 @@ function ThreadRouteContent(
       {renderThreadRouteBody(
         Platform.OS !== "android" && !layout.usesSplitView && !usesNativeHeaderGlass,
       )}
+      {Platform.OS === "ios" && threadListMode !== "tasks" ? (
+        <SideNotchThreadSelector
+          currentThread={selectedThread}
+          mode={threadListMode}
+          threads={allThreadShells}
+          onSelectThread={(thread) =>
+            navigation.dispatch(
+              StackActions.replace("Thread", {
+                environmentId: String(thread.environmentId),
+                threadId: String(thread.id),
+              }),
+            )
+          }
+        />
+      ) : null}
       {forwardingMessageId !== null && selectedThread.kind !== "side" ? (
         <ForwardResponsesModal
           environmentId={selectedThread.environmentId}

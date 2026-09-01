@@ -27,6 +27,14 @@ If reordering is unavailable for one environment, update the T3 Code server runn
 environment. Older servers can still pin and unpin threads, but do not understand synced ordering;
 their pinned threads keep the default newest-first order below the ones you have arranged.
 
+## Switching threads on iPhone
+
+While a chat is open on iPhone, use the black notch on the right edge to move through recent
+conversations. Drag up or down until the thread you want is highlighted, then release to open it.
+Tap the notch to choose from a compact recent list instead. The notch follows the current Threads or
+Agents mode and is hidden while viewing Tasks. VoiceOver exposes next, previous, and open-picker
+actions on the same control.
+
 ## Viewing multiple threads on desktop
 
 In the desktop app, drag a thread from the sidebar toward an edge of the conversation area to open
