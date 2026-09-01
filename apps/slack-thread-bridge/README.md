@@ -114,6 +114,9 @@ If the integration is being retired rather than paused, also revoke the
   when assistant text starts. The bridge removes the reaction after successful
   delivery and changes it to `x` after a failed turn. Reaction failures are
   best-effort and never block the T3 turn.
+- Once a Slack turn is present, the web and desktop timeline offers All, T3 and
+  Slack source filters. Filtering changes only what the client renders; every
+  turn remains in the durable thread history and provider context.
 - Only scheduled Agent Chat completion and attention events are proactively
   mirrored. Ordinary turns started in T3 are not duplicated into Slack.
 - Delivery is intentionally at-least-once. A process crash after Slack accepts

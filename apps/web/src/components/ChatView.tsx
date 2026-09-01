@@ -298,6 +298,11 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { SlackTimelineFilter } from "./chat/SlackTimelineFilter";
+import {
+  deriveTimelineSourcePresentation,
+  type TimelineSourceFilter,
+} from "./chat/slackTimelineFilter.logic";
 import { ForwardResponsesDialog } from "./chat/ForwardResponsesDialog";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -1740,6 +1745,23 @@ function ChatViewContent(props: ChatViewProps) {
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [chatSearchIndex, setChatSearchIndex] = useState(0);
+  const [timelineSourceFilterByThreadKey, setTimelineSourceFilterByThreadKey] = useState<
+    Record<string, TimelineSourceFilter>
+  >({});
+  const timelineSourceFilter = timelineSourceFilterByThreadKey[routeThreadKey] ?? "all";
+  const setTimelineSourceFilter = useCallback(
+    (filter: TimelineSourceFilter) => {
+      setTimelineSourceFilterByThreadKey((current) =>
+        current[routeThreadKey] === filter
+          ? current
+          : {
+              ...current,
+              [routeThreadKey]: filter,
+            },
+      );
+    },
+    [routeThreadKey],
+  );
   const chatSearch = useThreadMessageSearch(environmentId, threadId, chatSearchQuery);
   const chatSearchTargets = useMemo(
     () => expandChatSearchTargets(chatSearch.matches),
@@ -3000,6 +3022,22 @@ function ChatViewContent(props: ChatViewProps) {
       ),
     [activeThread?.proposedPlans, timelineMessages, turnPlans, workLogEntries],
   );
+  const timelineSourcePresentation = useMemo(
+    () => deriveTimelineSourcePresentation(timelineEntries, timelineSourceFilter),
+    [timelineEntries, timelineSourceFilter],
+  );
+  const displayedTimelineEntries = chatSearchOpen
+    ? timelineEntries
+    : timelineSourcePresentation.entries;
+  const timelineFilterShowsLatestTurn =
+    chatSearchOpen ||
+    timelineSourceFilter === "all" ||
+    (timelineSourcePresentation.latestSource ?? "t3") === timelineSourceFilter;
+  useEffect(() => {
+    if (optimisticUserMessages.length > 0 && timelineSourceFilter === "slack") {
+      setTimelineSourceFilter("t3");
+    }
+  }, [optimisticUserMessages.length, setTimelineSourceFilter, timelineSourceFilter]);
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroDockRequested =
     activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
@@ -7919,6 +7957,13 @@ function ChatViewContent(props: ChatViewProps) {
                   onClose={() => setChatSearchOpen(false)}
                 />
               ) : null}
+              {!chatSearchOpen && timelineSourcePresentation.slackTurnCount > 0 ? (
+                <SlackTimelineFilter
+                  value={timelineSourceFilter}
+                  presentation={timelineSourcePresentation}
+                  onChange={setTimelineSourceFilter}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 agentPanelModel={agentPanelModel}
@@ -7928,14 +7973,14 @@ function ChatViewContent(props: ChatViewProps) {
                     ? (messageId, anchor) => setForwardingMessage({ messageId, anchor })
                     : undefined
                 }
-                key={activeThread.id}
-                isWorking={isWorking}
+                key={`${activeThread.id}:${timelineSourceFilter}`}
+                isWorking={isWorking && timelineFilterShowsLatestTurn}
                 workingStepLabel={workingStepLabel}
                 activeTurnStartedAt={activeWorkStartedAt}
                 listRef={legendListRef}
-                timelineEntries={timelineEntries}
-                latestTurn={activeLatestTurn}
-                runningTurnId={activeRunningTurnId}
+                timelineEntries={displayedTimelineEntries}
+                latestTurn={timelineFilterShowsLatestTurn ? activeLatestTurn : null}
+                runningTurnId={timelineFilterShowsLatestTurn ? activeRunningTurnId : null}
                 turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                 activeThreadEnvironmentId={activeThread.environmentId}
                 routeThreadKey={routeThreadKey}
