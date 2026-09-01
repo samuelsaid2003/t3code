@@ -110,9 +110,10 @@ If the integration is being retired rather than paused, also revoke the
   delivery marker is recorded only after the streamed message is finalized or
   every fallback chunk posts, with two bounded retries if T3 is briefly
   unavailable.
-- Slack-originated prompts show `hourglass_flowing_sand` while queued, `eyes`
-  when assistant text starts, `white_check_mark` after delivery, and `x` after a
-  failed turn. Reaction failures are best-effort and never block the T3 turn.
+- Slack-originated prompts show `hourglass_flowing_sand` while queued and `eyes`
+  when assistant text starts. The bridge removes the reaction after successful
+  delivery and changes it to `x` after a failed turn. Reaction failures are
+  best-effort and never block the T3 turn.
 - Only scheduled Agent Chat completion and attention events are proactively
   mirrored. Ordinary turns started in T3 are not duplicated into Slack.
 - Delivery is intentionally at-least-once. A process crash after Slack accepts

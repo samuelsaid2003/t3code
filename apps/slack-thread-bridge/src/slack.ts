@@ -253,7 +253,7 @@ export class SlackGateway {
     }
     this.inFlight.add(message.sourceId);
     let currentReaction: string | null = null;
-    const setReaction = async (nextReaction: string) => {
+    const setReaction = async (nextReaction: string | null) => {
       if (
         await this.replaceReaction(
           message.channel,
@@ -318,7 +318,7 @@ export class SlackGateway {
       }
       if (!delivered) await this.post(message.channel, answer.text, message.threadTs);
 
-      await setReaction("white_check_mark");
+      await setReaction(null);
       this.completed.add(message.sourceId);
       if (this.completed.size > 500) this.completed.delete(this.completed.values().next().value!);
       try {
@@ -351,7 +351,7 @@ export class SlackGateway {
     channel: string,
     timestamp: string,
     previous: string | null,
-    next: string,
+    next: string | null,
   ): Promise<boolean> {
     if (previous !== null && previous !== next) {
       try {
@@ -362,6 +362,7 @@ export class SlackGateway {
         }
       }
     }
+    if (next === null) return true;
     try {
       await this.web.reactions.add({ channel, timestamp, name: next });
       return true;
