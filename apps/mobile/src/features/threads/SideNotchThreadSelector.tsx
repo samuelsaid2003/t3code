@@ -16,7 +16,11 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText } from "../../components/AppText";
+import { cn } from "../../lib/cn";
+import { relativeTime } from "../../lib/time";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { THREAD_LIST_V2_STATUS_LABELS } from "./thread-list-v2-items";
+import { resolveThreadListV2Status } from "./threadListV2";
 import {
   sideNotchSelectionIndex,
   sideNotchSnapOffset,
@@ -70,9 +74,9 @@ function WheelRow(props: {
   readonly dragOffset: SharedValue<number>;
   readonly expanded: SharedValue<number>;
   readonly index: number;
-  readonly title: string;
+  readonly thread: EnvironmentThreadShell;
 }) {
-  const { currentIndex, dragOffset, expanded, index } = props;
+  const { currentIndex, dragOffset, expanded, index, thread } = props;
   const rowStyle = useAnimatedStyle(() => {
     const relativePosition = index - currentIndex + dragOffset.value / ROW_HEIGHT;
     const distance = Math.abs(relativePosition);
@@ -85,14 +89,24 @@ function WheelRow(props: {
     };
   });
 
+  const statusLabel = THREAD_LIST_V2_STATUS_LABELS[resolveThreadListV2Status(thread)];
+  const timeLabel = relativeTime(
+    thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
+  );
+
   return (
     <Animated.View pointerEvents="none" style={[styles.row, rowStyle]}>
       <AppText
-        className="text-center text-[15px] font-t3-semibold"
+        className="flex-1 text-[15px] font-t3-semibold"
         numberOfLines={1}
         style={{ color: PlatformColor("labelColor") }}
       >
-        {props.title}
+        {thread.title}
+      </AppText>
+      <AppText
+        className={cn("text-xs tabular-nums", statusLabel?.className ?? "text-foreground-tertiary")}
+      >
+        {statusLabel?.label ?? timeLabel}
       </AppText>
     </Animated.View>
   );
@@ -282,7 +296,7 @@ export function SideNotchThreadSelector(props: {
                   expanded={expanded}
                   index={index}
                   key={`${thread.environmentId}:${thread.id}`}
-                  title={thread.title}
+                  thread={thread}
                 />
               ))}
             </Animated.View>
@@ -320,8 +334,10 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
   row: {
+    alignItems: "center",
+    columnGap: 8,
+    flexDirection: "row",
     height: ROW_HEIGHT,
-    justifyContent: "center",
     left: 16,
     paddingHorizontal: 8,
     position: "absolute",

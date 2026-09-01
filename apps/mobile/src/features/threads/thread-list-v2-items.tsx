@@ -48,8 +48,9 @@ const MONO_FONT = Platform.select({
 
 // Status hues follow the system-wide convention set by sidebar v1 and the
 // Live Activity/widgets (amber approval, indigo input, sky working) so a
-// thread reads the same color everywhere it surfaces.
-const STATUS_LABEL_BY_STATUS: Partial<
+// thread reads the same color everywhere it surfaces, including the
+// side-notch conversation wheel.
+export const THREAD_LIST_V2_STATUS_LABELS: Partial<
   Record<ThreadListV2Status, { label: string; className: string }>
 > = {
   approval: { label: "Approval", className: "text-adaptive-amber-700-300" },
@@ -426,7 +427,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const selected = props.selected === true;
 
   const status = resolveThreadListV2Status(thread);
-  const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  const statusLabel = THREAD_LIST_V2_STATUS_LABELS[status];
   const timeLabel = threadTimeLabel(thread);
 
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
