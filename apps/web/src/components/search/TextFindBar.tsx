@@ -22,7 +22,10 @@ export function TextFindBar(props: TextFindBarProps) {
   }, []);
 
   return (
-    <div className="absolute top-2 right-3 z-50 flex h-10 w-[min(28rem,calc(100%-1.5rem))] items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-2.5 shadow-xl backdrop-blur-xl">
+    <div
+      className="absolute top-2 right-3 z-50 flex h-10 w-[min(28rem,calc(100%-1.5rem))] items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-2.5 shadow-xl backdrop-blur-xl"
+      data-text-find-ui="true"
+    >
       <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
       <input
         ref={inputRef}

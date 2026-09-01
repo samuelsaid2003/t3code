@@ -431,6 +431,7 @@ import {
 } from "../versionSkew";
 import { resolveAssetUrl, useAssetUrls } from "../assets/assetUrls";
 import { ChatSearchBar } from "./chat/ChatSearchBar";
+import { expandChatSearchTargets } from "./chat/chatSearchTargets";
 
 const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more files without additional text. Respond using the conversation context and the attached files.]";
@@ -1705,8 +1706,11 @@ function ChatViewContent(props: ChatViewProps) {
     () => [...standardForwardThreadShells, ...agentForwardThreadShells],
     [agentForwardThreadShells, standardForwardThreadShells],
   );
-  const [forwardingMessageId, setForwardingMessageId] = useState<MessageId | null>(null);
-  useEffect(() => setForwardingMessageId(null), [routeThreadKey]);
+  const [forwardingMessage, setForwardingMessage] = useState<{
+    readonly messageId: MessageId;
+    readonly anchor: HTMLButtonElement;
+  } | null>(null);
+  useEffect(() => setForwardingMessage(null), [routeThreadKey]);
   const sendForwardedResponses = useCallback(
     async (destination: (typeof forwardThreadShells)[number], text: string) => {
       const createdAt = new Date().toISOString();
@@ -1737,10 +1741,14 @@ function ChatViewContent(props: ChatViewProps) {
   const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [chatSearchIndex, setChatSearchIndex] = useState(0);
   const chatSearch = useThreadMessageSearch(environmentId, threadId, chatSearchQuery);
-  const activeChatSearchMatch = chatSearch.matches[chatSearchIndex] ?? null;
+  const chatSearchTargets = useMemo(
+    () => expandChatSearchTargets(chatSearch.matches),
+    [chatSearch.matches],
+  );
+  const activeChatSearchTarget = chatSearchTargets[chatSearchIndex] ?? null;
   useEffect(() => {
-    setChatSearchIndex((current) => Math.max(0, Math.min(current, chatSearch.matches.length - 1)));
-  }, [chatSearch.matches.length]);
+    setChatSearchIndex((current) => Math.max(0, Math.min(current, chatSearchTargets.length - 1)));
+  }, [chatSearchTargets.length]);
   useEffect(() => {
     setChatSearchOpen(false);
     setChatSearchQuery("");
@@ -7900,8 +7908,8 @@ function ChatViewContent(props: ChatViewProps) {
               {chatSearchOpen ? (
                 <ChatSearchBar
                   query={chatSearchQuery}
-                  matches={chatSearch.matches}
-                  activeIndex={chatSearch.matches.length === 0 ? -1 : chatSearchIndex}
+                  matchCount={chatSearchTargets.length}
+                  activeIndex={chatSearchTargets.length === 0 ? -1 : chatSearchIndex}
                   isPending={chatSearch.isPending}
                   onQueryChange={(query) => {
                     setChatSearchQuery(query);
@@ -7917,7 +7925,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onOpenAgents={addAgentsSurface}
                 onForwardAssistantMessage={
                   routeKind === "server" && activeThread.kind !== "side"
-                    ? setForwardingMessageId
+                    ? (messageId, anchor) => setForwardingMessage({ messageId, anchor })
                     : undefined
                 }
                 key={activeThread.id}
@@ -7954,8 +7962,12 @@ function ChatViewContent(props: ChatViewProps) {
                 topFadeEnabled={!hasTimelineTopBanner}
                 loadEarlier={loadEarlierTurns}
                 searchTargetMessageId={
-                  chatSearchOpen ? (activeChatSearchMatch?.messageId ?? null) : null
+                  chatSearchOpen ? (activeChatSearchTarget?.match.messageId ?? null) : null
                 }
+                searchTargetOccurrenceIndex={
+                  chatSearchOpen ? (activeChatSearchTarget?.occurrenceIndex ?? 0) : 0
+                }
+                searchQuery={chatSearchOpen ? chatSearchQuery.trim() : ""}
                 onSearchTargetMissing={
                   loadEarlierTurns !== null && !loadEarlierTurns.loading
                     ? loadEarlierTurns.onLoadEarlier
@@ -8308,13 +8320,14 @@ function ChatViewContent(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
-      {forwardingMessageId !== null && routeKind === "server" && activeThread ? (
+      {forwardingMessage !== null && routeKind === "server" && activeThread ? (
         <ForwardResponsesDialog
+          anchor={forwardingMessage.anchor}
           environmentId={activeThread.environmentId}
           sourceThreadId={activeThread.id}
-          sourceMessageId={forwardingMessageId}
+          sourceMessageId={forwardingMessage.messageId}
           threads={forwardThreadShells}
-          onClose={() => setForwardingMessageId(null)}
+          onClose={() => setForwardingMessage(null)}
           onSend={sendForwardedResponses}
         />
       ) : null}

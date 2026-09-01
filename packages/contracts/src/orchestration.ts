@@ -2119,6 +2119,10 @@ export const OrchestrationThreadSearchMatch = Schema.Struct({
   messageId: Schema.optionalKey(MessageId),
   source: OrchestrationThreadSearchSource,
   snippet: Schema.String.check(Schema.isMaxLength(240)),
+  // Older servers omit this. It counts visible query occurrences in the
+  // matched message so in-thread navigation can address each hit, not merely
+  // each message containing one or more hits.
+  matchCount: Schema.optionalKey(PositiveInt),
   messageCreatedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrchestrationThreadSearchMatch = typeof OrchestrationThreadSearchMatch.Type;

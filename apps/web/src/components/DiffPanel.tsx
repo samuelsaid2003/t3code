@@ -71,6 +71,10 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { TextFindBar } from "./search/TextFindBar";
 import { findPlainTextMatches } from "./search/textFind";
+import {
+  useDomTextSearchHighlight,
+  useDomTextSearchNavigation,
+} from "./search/useDomTextSearchHighlight";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import { serverEnvironment } from "../state/server";
@@ -128,6 +132,8 @@ export default function DiffPanel({
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findIndex, setFindIndex] = useState(0);
+  useDomTextSearchHighlight(panelRef.current, findOpen ? findQuery : "");
+  useDomTextSearchNavigation(panelRef.current, findOpen ? findQuery : "", findIndex);
 
   const routeThreadRef = useParams({
     strict: false,

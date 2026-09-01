@@ -126,6 +126,11 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import {
+  collectTextSearchRanges,
+  revealTextSearchRange,
+  useDomTextSearchHighlight,
+} from "../search/useDomTextSearchHighlight";
 
 import {
   buildInlineTerminalContextText,
@@ -167,7 +172,7 @@ interface TimelineRowSharedState {
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   agentPanelModel: AgentPanelModel;
   onOpenAgents: () => void;
-  onForwardAssistantMessage: ((messageId: MessageId) => void) | null;
+  onForwardAssistantMessage: ((messageId: MessageId, anchor: HTMLButtonElement) => void) | null;
 }
 
 interface TimelineRowActivityState {
@@ -229,7 +234,10 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
 interface MessagesTimelineProps {
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
-  onForwardAssistantMessage?: ((messageId: MessageId) => void) | null | undefined;
+  onForwardAssistantMessage?:
+    | ((messageId: MessageId, anchor: HTMLButtonElement) => void)
+    | null
+    | undefined;
   isWorking: boolean;
   workingStepLabel?: string | null;
   activeTurnStartedAt: string | null;
@@ -270,6 +278,8 @@ interface MessagesTimelineProps {
   /** Non-null when older turns exist beyond the loaded window. */
   loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
   searchTargetMessageId?: MessageId | null;
+  searchTargetOccurrenceIndex?: number;
+  searchQuery?: string;
   onSearchTargetMissing?: (() => void) | undefined;
 }
 
@@ -314,6 +324,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   topFadeEnabled = false,
   loadEarlier = null,
   searchTargetMessageId = null,
+  searchTargetOccurrenceIndex = 0,
+  searchQuery = "",
   onSearchTargetMissing,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
@@ -465,6 +477,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
+    null,
+  );
   useEffect(() => {
     if (searchTargetMessageId === null) return;
     const index = rows.findIndex(
@@ -475,14 +490,47 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
     onManualNavigation();
-    requestAnimationFrame(() => {
+    let frame: number | null = null;
+    let attempts = 0;
+    const revealOccurrence = () => {
+      frame = null;
+      const rowElement = timelineViewportElement
+        ? [...timelineViewportElement.querySelectorAll<HTMLElement>("[data-message-id]")].find(
+            (element) => element.dataset.messageId === searchTargetMessageId,
+          )
+        : undefined;
+      const range = rowElement
+        ? collectTextSearchRanges(rowElement, searchQuery)[searchTargetOccurrenceIndex]
+        : undefined;
+      if (range && revealTextSearchRange(range)) return;
+      const showFullMessage = rowElement
+        ? [...rowElement.querySelectorAll<HTMLButtonElement>("button")].find(
+            (button) => button.textContent?.trim() === "Show full message",
+          )
+        : undefined;
+      showFullMessage?.click();
+      attempts += 1;
+      if (attempts < 60) frame = requestAnimationFrame(revealOccurrence);
+    };
+    frame = requestAnimationFrame(() => {
       void listRef.current?.scrollToIndex({ index, animated: true, viewOffset: 64 });
+      frame = requestAnimationFrame(revealOccurrence);
     });
-  }, [listRef, onManualNavigation, onSearchTargetMissing, rows, searchTargetMessageId]);
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [
+    listRef,
+    onManualNavigation,
+    onSearchTargetMissing,
+    rows,
+    searchQuery,
+    searchTargetMessageId,
+    searchTargetOccurrenceIndex,
+    timelineViewportElement,
+  ]);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
-  const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
-    null,
-  );
+  useDomTextSearchHighlight(timelineViewportElement, searchQuery);
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);
   const handleAnchorReady = useCallback(
@@ -618,19 +666,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
       <div
-        className={cn(
-          "mx-auto w-full min-w-0 max-w-3xl overflow-x-clip rounded-lg",
-          item.kind === "message" &&
-            item.message.id === searchTargetMessageId &&
-            "bg-primary/5 ring-1 ring-primary/25",
-        )}
+        className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip rounded-lg"
         data-timeline-root="true"
         data-message-id={item.kind === "message" ? item.message.id : undefined}
       >
         <TimelineRowContent row={item} />
       </div>
     ),
-    [searchTargetMessageId],
+    [],
   );
 
   if (rows.length === 0 && !isWorking) {
@@ -1389,7 +1432,9 @@ function AssistantMessageActions({ row }: { row: Extract<TimelineRow, { kind: "m
                 variant="ghost"
                 aria-label="Forward response"
                 className="text-muted-foreground hover:text-foreground"
-                onClick={() => ctx.onForwardAssistantMessage?.(row.message.id)}
+                onClick={(event) =>
+                  ctx.onForwardAssistantMessage?.(row.message.id, event.currentTarget)
+                }
               />
             }
           >

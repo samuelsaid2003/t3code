@@ -51,6 +51,10 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { TextFindBar } from "~/components/search/TextFindBar";
 import { findPlainTextMatches } from "~/components/search/textFind";
+import {
+  useDomTextSearchHighlight,
+  useDomTextSearchNavigation,
+} from "~/components/search/useDomTextSearchHighlight";
 
 import FileBrowserPanel from "./FileBrowserPanel";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
@@ -859,6 +863,8 @@ export default function FilePreviewPanel({
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findIndex, setFindIndex] = useState(0);
+  useDomTextSearchHighlight(panelRef.current, findOpen ? findQuery : "");
+  useDomTextSearchNavigation(panelRef.current, findOpen ? findQuery : "", findIndex);
   const isHistoricalRef = selectedRef !== null;
   const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
   const useWorkspaceImagePreview = isImage && !isHistoricalRef;

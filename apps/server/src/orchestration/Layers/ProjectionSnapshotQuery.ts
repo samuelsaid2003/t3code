@@ -267,6 +267,21 @@ function buildSearchSnippet(text: string, query: string): string {
   }`;
 }
 
+function countSearchOccurrences(text: string, query: string): number {
+  const needle = foldAsciiCase(query);
+  if (needle.length === 0) return 0;
+  const haystack = foldAsciiCase(text);
+  let count = 0;
+  let offset = 0;
+  while (offset <= haystack.length - needle.length) {
+    const match = haystack.indexOf(needle, offset);
+    if (match < 0) break;
+    count += 1;
+    offset = match + needle.length;
+  }
+  return count;
+}
+
 function computeSnapshotSequence(
   stateRows: ReadonlyArray<Schema.Schema.Type<typeof ProjectionStateDbRowSchema>>,
 ): number {
@@ -2473,6 +2488,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         messageId: row.messageId,
         source: row.source,
         snippet: buildSearchSnippet(row.matchText, input.query),
+        matchCount: Math.max(1, countSearchOccurrences(row.matchText, input.query)),
         messageCreatedAt: row.messageCreatedAt,
       })),
     };

@@ -41,6 +41,7 @@
     "lexical": "^0.41.0",
     "lucide-react": "^0.564.0",
     "react": "19.2.6",
+    "react-day-picker": "^9.14.0",
     "react-dom": "19.2.6",
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",

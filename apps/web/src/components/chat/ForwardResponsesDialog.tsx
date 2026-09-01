@@ -1,29 +1,22 @@
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type {
   EnvironmentId,
   MessageId,
   OrchestrationForwardSource,
   ThreadId,
 } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { useMemo, useState } from "react";
 import { ArrowLeftIcon, ForwardIcon } from "lucide-react";
+import { useMemo, useState } from "react";
 
+import { compileForwardedResponses } from "~/forwardResponses";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { compileForwardedResponses } from "~/forwardResponses";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
+import { Popover, PopoverDescription, PopoverPopup, PopoverTitle } from "../ui/popover";
 
 interface ForwardResponsesDialogProps {
+  readonly anchor: HTMLElement;
   readonly environmentId: EnvironmentId;
   readonly sourceThreadId: ThreadId;
   readonly sourceMessageId: MessageId;
@@ -106,31 +99,38 @@ export function ForwardResponsesDialog(props: ForwardResponsesDialogProps) {
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogPopup className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ForwardIcon className="size-4" /> Forward response
-          </DialogTitle>
-          <DialogDescription>
+    <Popover open onOpenChange={(open) => !open && props.onClose()}>
+      <PopoverPopup
+        align="end"
+        anchor={props.anchor}
+        className="w-[24rem] max-w-[calc(100vw-2rem)]"
+        side="top"
+        sideOffset={8}
+        viewportClassName="p-0"
+      >
+        <div className="border-b px-3 py-2.5">
+          <PopoverTitle className="flex items-center gap-2 text-sm font-semibold">
+            <ForwardIcon className="size-3.5" /> Forward response
+          </PopoverTitle>
+          <PopoverDescription className="mt-0.5 text-[11px] text-muted-foreground">
             {step === "sources"
-              ? "Add recent threads, then review the exact responses before sending."
-              : "Choose one destination. This will be sent as a normal user message."}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel className="space-y-4">
+              ? "Include responses from recent threads."
+              : "Review, choose a destination, then send."}
+          </PopoverDescription>
+        </div>
+
+        <div className="max-h-80 overflow-y-auto p-1.5">
           {step === "sources" ? (
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {candidates.map((thread) => {
                 const isPinnedSource = thread.id === props.sourceThreadId;
                 const checked = selectedThreadIds.has(thread.id);
                 return (
                   <label
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-xs hover:bg-muted/60"
                     key={thread.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted/60"
                   >
                     <input
-                      type="checkbox"
                       checked={checked}
                       disabled={isPinnedSource}
                       onChange={(event) => {
@@ -141,11 +141,12 @@ export function ForwardResponsesDialog(props: ForwardResponsesDialogProps) {
                           return next;
                         });
                       }}
+                      type="checkbox"
                     />
-                    <span className="min-w-0 flex-1 truncate text-sm">{thread.title}</span>
-                    <span className="text-muted-foreground text-xs">
+                    <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
                       {isPinnedSource
-                        ? "Selected response"
+                        ? "This response"
                         : thread.kind === "agent"
                           ? "Agent"
                           : "Thread"}
@@ -155,68 +156,75 @@ export function ForwardResponsesDialog(props: ForwardResponsesDialogProps) {
               })}
             </div>
           ) : (
-            <>
+            <div className="space-y-3 p-1">
               {resolvedSources.length < selectedThreadIds.size ? (
-                <p className="rounded-lg bg-muted/60 px-3 py-2 text-muted-foreground text-xs">
-                  {selectedThreadIds.size - resolvedSources.length} selected thread(s) had no
-                  completed final response and were omitted.
+                <p className="rounded-md bg-muted/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                  {selectedThreadIds.size - resolvedSources.length} selection(s) had no completed
+                  response and were omitted.
                 </p>
               ) : null}
-              <div className="max-h-72 space-y-3 overflow-y-auto rounded-xl border bg-muted/20 p-4">
+              <div className="space-y-2 rounded-md border bg-muted/15 p-2.5">
                 {resolvedSources.map((source) => (
                   <section key={`${source.threadId}:${source.messageId}`}>
-                    <h3 className="text-sm font-semibold">{source.title}</h3>
-                    <p className="mt-1 line-clamp-5 whitespace-pre-wrap text-muted-foreground text-sm">
+                    <h3 className="truncate text-xs font-semibold">{source.title}</h3>
+                    <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[11px] leading-4 text-muted-foreground">
                       {source.text}
                     </p>
                   </section>
                 ))}
               </div>
-              <fieldset className="space-y-1">
-                <legend className="mb-2 text-sm font-medium">Send to</legend>
+              <fieldset className="space-y-0.5">
+                <legend className="mb-1 px-1 text-[11px] font-medium text-muted-foreground">
+                  Send to
+                </legend>
                 {candidates.map((thread) => (
                   <label
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-xs hover:bg-muted/60"
                     key={thread.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted/60"
                   >
                     <input
-                      type="radio"
-                      name="forward-destination"
                       checked={destinationThreadId === thread.id}
+                      name="forward-destination"
                       onChange={() => setDestinationThreadId(thread.id)}
+                      type="radio"
                     />
-                    <span className="min-w-0 flex-1 truncate text-sm">{thread.title}</span>
+                    <span className="min-w-0 flex-1 truncate">{thread.title}</span>
                   </label>
                 ))}
               </fieldset>
-            </>
+            </div>
           )}
           {error ? (
-            <p role="alert" className="text-destructive text-sm">
+            <p className="px-2 py-1.5 text-xs text-destructive" role="alert">
               {error}
             </p>
           ) : null}
-        </DialogPanel>
-        <DialogFooter>
+        </div>
+
+        <div className="flex items-center justify-end gap-1 border-t p-2">
           {step === "review" ? (
-            <Button variant="ghost" onClick={() => setStep("sources")} disabled={busy}>
-              <ArrowLeftIcon className="size-4" /> Back
+            <Button disabled={busy} onClick={() => setStep("sources")} size="xs" variant="ghost">
+              <ArrowLeftIcon className="size-3.5" /> Back
             </Button>
           ) : null}
-          <Button variant="ghost" onClick={props.onClose} disabled={busy}>
+          <Button disabled={busy} onClick={props.onClose} size="xs" variant="ghost">
             Cancel
           </Button>
           {step === "sources" ? (
-            <Button onClick={() => void continueToReview()} disabled={busy}>
+            <Button disabled={busy} onClick={() => void continueToReview()} size="xs">
               Next
             </Button>
           ) : (
-            <Button onClick={() => void send()} disabled={busy || destinationThreadId === null}>
+            <Button
+              disabled={busy || destinationThreadId === null}
+              onClick={() => void send()}
+              size="xs"
+            >
               Send
             </Button>
           )}
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }
