@@ -10,6 +10,8 @@ import {
 
 export type SideNotchMode = Exclude<MobileThreadListMode, "tasks">;
 
+const DEFAULT_WHEEL_LIMIT = 18;
+
 export function sideNotchThreads(
   threads: ReadonlyArray<EnvironmentThreadShell>,
   mode: SideNotchMode,
@@ -31,15 +33,44 @@ export function sideNotchThreadIndex(
   return threads.findIndex((thread) => mobileThreadShellKey(thread) === currentKey);
 }
 
-export function sideNotchPreviewIndex(input: {
+export function sideNotchWheelThreads(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  current: Pick<EnvironmentThreadShell, "environmentId" | "id">,
+  limit = DEFAULT_WHEEL_LIMIT,
+): ReadonlyArray<EnvironmentThreadShell> {
+  if (threads.length <= limit) return threads;
+
+  const recent = threads.slice(0, limit);
+  if (sideNotchThreadIndex(recent, current) >= 0) return recent;
+
+  const currentThread = threads[sideNotchThreadIndex(threads, current)];
+  return currentThread ? [...recent.slice(0, -1), currentThread] : recent;
+}
+
+export function sideNotchSelectionIndex(input: {
   readonly currentIndex: number;
   readonly threadCount: number;
   readonly translationY: number;
-  readonly threshold?: number;
+  readonly rowHeight?: number;
+  readonly velocityY?: number;
 }): number {
+  "worklet";
   if (input.currentIndex < 0 || input.threadCount <= 0) return -1;
-  const threshold = input.threshold ?? 42;
-  const magnitude = Math.floor(Math.abs(input.translationY) / threshold);
-  const direction = input.translationY < 0 ? 1 : input.translationY > 0 ? -1 : 0;
-  return Math.max(0, Math.min(input.threadCount - 1, input.currentIndex + direction * magnitude));
+  const rowHeight = input.rowHeight ?? 44;
+  const projectedVelocity = Math.max(
+    -rowHeight * 2,
+    Math.min(rowHeight * 2, (input.velocityY ?? 0) * 0.1),
+  );
+  const projectedTranslation = input.translationY + projectedVelocity;
+  const nextIndex = input.currentIndex - Math.round(projectedTranslation / rowHeight);
+  return Math.max(0, Math.min(input.threadCount - 1, nextIndex));
+}
+
+export function sideNotchSnapOffset(input: {
+  readonly currentIndex: number;
+  readonly selectedIndex: number;
+  readonly rowHeight?: number;
+}): number {
+  "worklet";
+  return (input.currentIndex - input.selectedIndex) * (input.rowHeight ?? 44);
 }

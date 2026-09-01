@@ -3,9 +3,11 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
 import {
-  sideNotchPreviewIndex,
+  sideNotchSelectionIndex,
+  sideNotchSnapOffset,
   sideNotchThreadIndex,
   sideNotchThreads,
+  sideNotchWheelThreads,
 } from "./side-notch-navigation";
 
 function shell(input: {
@@ -64,11 +66,45 @@ describe("side notch navigation", () => {
     expect(sideNotchThreads(threads, "agents").map((thread) => thread.id)).toEqual(["agent-new"]);
   });
 
-  it("steps once per threshold and clamps at either end", () => {
-    expect(sideNotchPreviewIndex({ currentIndex: 2, threadCount: 5, translationY: -41 })).toBe(2);
-    expect(sideNotchPreviewIndex({ currentIndex: 2, threadCount: 5, translationY: -42 })).toBe(3);
-    expect(sideNotchPreviewIndex({ currentIndex: 2, threadCount: 5, translationY: 84 })).toBe(0);
-    expect(sideNotchPreviewIndex({ currentIndex: 4, threadCount: 5, translationY: -400 })).toBe(4);
+  it("selects the nearest wheel row and clamps at either end", () => {
+    expect(sideNotchSelectionIndex({ currentIndex: 2, threadCount: 5, translationY: -21 })).toBe(2);
+    expect(sideNotchSelectionIndex({ currentIndex: 2, threadCount: 5, translationY: -23 })).toBe(3);
+    expect(sideNotchSelectionIndex({ currentIndex: 2, threadCount: 5, translationY: 88 })).toBe(0);
+    expect(sideNotchSelectionIndex({ currentIndex: 4, threadCount: 5, translationY: -400 })).toBe(
+      4,
+    );
+  });
+
+  it("projects a short flick and snaps the selected row to center", () => {
+    expect(
+      sideNotchSelectionIndex({
+        currentIndex: 2,
+        threadCount: 5,
+        translationY: -8,
+        velocityY: -500,
+      }),
+    ).toBe(3);
+    expect(sideNotchSnapOffset({ currentIndex: 2, selectedIndex: 4 })).toBe(-88);
+  });
+
+  it("limits the wheel to recent threads without dropping the open thread", () => {
+    const threads = Array.from({ length: 5 }, (_, index) =>
+      shell({
+        id: `thread-${index}`,
+        updatedAt: `2026-09-01T0${index}:00:00.000Z`,
+      }),
+    );
+
+    expect(sideNotchWheelThreads(threads, threads[1]!, 3).map((thread) => thread.id)).toEqual([
+      "thread-0",
+      "thread-1",
+      "thread-2",
+    ]);
+    expect(sideNotchWheelThreads(threads, threads[4]!, 3).map((thread) => thread.id)).toEqual([
+      "thread-0",
+      "thread-1",
+      "thread-4",
+    ]);
   });
 
   it("finds the current thread with its environment-scoped identity", () => {

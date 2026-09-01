@@ -29,11 +29,11 @@ their pinned threads keep the default newest-first order below the ones you have
 
 ## Switching threads on iPhone
 
-While a chat is open on iPhone, use the black notch on the right edge to move through recent
-conversations. Drag up or down until the thread you want is highlighted, then release to open it.
-Tap the notch to choose from a compact recent list instead. The notch follows the current Threads or
-Agents mode and is hidden while viewing Tasks. VoiceOver exposes next, previous, and open-picker
-actions on the same control.
+While a chat is open on iPhone, touch the subtle glass notch on the right edge and drag up or down.
+The notch expands into a wheel of recent conversation titles that moves with your finger. Release
+when the thread you want is centered to open it; tap without dragging to expand or collapse the
+wheel. The notch follows the current Threads or Agents mode and is hidden while viewing Tasks.
+VoiceOver exposes next, previous, and wheel actions on the same control.
 
 ## Viewing multiple threads on desktop
 
