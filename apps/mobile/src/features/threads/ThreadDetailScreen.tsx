@@ -71,6 +71,10 @@ import type {
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import {
+  SlackThreadFeedFilter,
+  SLACK_THREAD_FEED_FILTER_HEIGHT,
+} from "./ThreadFeedSourceFilterControl";
+import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
@@ -89,6 +93,10 @@ import {
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
+import {
+  deriveThreadFeedSourcePresentation,
+  type ThreadFeedSourceFilter,
+} from "./slackThreadFeedFilter";
 
 export interface ThreadDetailScreenProps {
   readonly selectedThread: OrchestrationThreadShell;
@@ -284,6 +292,23 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [submittedMessageId, setSubmittedMessageId] = useState<MessageId | null>(null);
   const [endFollowEnabled, setEndFollowEnabled] = useState(true);
+  const [sourceFilterByThreadKey, setSourceFilterByThreadKey] = useState<
+    Record<string, ThreadFeedSourceFilter>
+  >({});
+  const sourceFilter = sourceFilterByThreadKey[selectedThreadKey] ?? "all";
+  const sourcePresentation = useMemo(
+    () => deriveThreadFeedSourcePresentation(props.selectedThreadFeed, sourceFilter),
+    [props.selectedThreadFeed, sourceFilter],
+  );
+  const showSourceFilter = sourcePresentation.slackTurnCount > 0;
+  const selectedSourceIncludesLatest =
+    sourceFilter === "all" || sourcePresentation.latestSource === sourceFilter;
+  const handleSourceFilterChange = useCallback(
+    (value: ThreadFeedSourceFilter) => {
+      setSourceFilterByThreadKey((current) => ({ ...current, [selectedThreadKey]: value }));
+    },
+    [selectedThreadKey],
+  );
   // Android keys the safe-area padding on keyboard visibility (#5988): the
   // back gesture closes the keyboard while the editor stays focused, and a
   // focus-keyed inset would leave the toolbar under the gesture bar. iOS must
@@ -316,6 +341,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   })();
   const showWorkingControl =
     props.activeWorkStartedAt !== null &&
+    selectedSourceIncludesLatest &&
     contentPresentationKind === "ready" &&
     threadSyncPhase === null &&
     props.connectionStateLabel === "connected" &&
@@ -591,6 +617,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     const hasUserMessage = selectedThreadFeed.some(
       (entry) => entry.type === "message" && entry.message.role === "user",
     );
+    if (sourceFilter === "slack") {
+      handleSourceFilterChange("t3");
+    }
     const messageId = await props.onSendMessage();
     if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
       return messageId;
@@ -613,8 +642,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     props.onSendMessage,
     props.selectedThread.latestTurn,
     props.selectedThreadQueueCount,
+    handleSourceFilterChange,
     selectedThreadFeed,
     selectedThreadKey,
+    sourceFilter,
   ]);
 
   const collapseComposer = useCallback(() => {
@@ -693,17 +724,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             environmentId={props.environmentId}
             threadId={props.selectedThread.id}
             workspaceRoot={props.threadCwd}
-            feed={props.selectedThreadFeed}
+            feed={sourcePresentation.feed}
             contentPresentation={props.contentPresentation}
             agentLabel={agentLabel}
-            latestTurn={props.selectedThread.latestTurn}
-            activeWorkStartedAt={props.activeWorkStartedAt}
+            latestTurn={selectedSourceIncludesLatest ? props.selectedThread.latestTurn : null}
+            activeWorkStartedAt={selectedSourceIncludesLatest ? props.activeWorkStartedAt : null}
             listRef={listRef}
             freeze={freeze}
             anchorMessageId={anchorMessageId}
             submittedMessageId={submittedMessageId}
             contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
             contentTopInset={0}
+            contentTopOverlayHeight={showSourceFilter ? SLACK_THREAD_FEED_FILTER_HEIGHT : 0}
             contentBottomInset={
               estimatedOverlayHeight + (showWorkingControl ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
             }
@@ -717,6 +749,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             loadEarlier={props.loadEarlier ?? null}
             onForwardAssistantMessage={props.onForwardAssistantMessage}
           />
+          {showSourceFilter ? (
+            <View
+              pointerEvents="box-none"
+              className="absolute inset-x-0 z-10"
+              style={{
+                top: (props.usesAutomaticContentInsets ? navigationHeaderHeight : 0) + 4,
+              }}
+            >
+              <SlackThreadFeedFilter
+                value={sourceFilter}
+                presentation={sourcePresentation}
+                onChange={handleSourceFilterChange}
+              />
+            </View>
+          ) : null}
         </View>
       ) : (
         <View className="flex-1" />

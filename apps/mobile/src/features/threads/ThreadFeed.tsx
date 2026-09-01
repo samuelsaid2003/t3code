@@ -192,6 +192,7 @@ export interface ThreadFeedProps {
   readonly submittedMessageId: MessageId | null;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly contentTopInset?: number;
+  readonly contentTopOverlayHeight?: number;
   readonly contentBottomInset?: number;
   readonly contentMaxWidth?: number;
   readonly layoutVariant?: LayoutVariant;
@@ -2538,7 +2539,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               </>
             }
             contentContainerStyle={{
-              paddingTop: 12,
+              paddingTop: 12 + (props.contentTopOverlayHeight ?? 0),
               paddingHorizontal: contentHorizontalPadding,
             }}
           />
