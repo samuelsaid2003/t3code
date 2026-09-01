@@ -24,6 +24,7 @@ import { useThreadListActions } from "./useThreadListActions";
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
 import { AgentChatsList } from "../agents/AgentChatsList";
 import { AgentListModeControl } from "../agents/AgentListModeControl";
+import { TasksScreen } from "../tasks/TasksScreen";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -209,7 +210,9 @@ export function HomeRouteScreen() {
           onChange={setThreadListMode}
         />
 
-        {threadListMode === "agents" ? (
+        {threadListMode === "tasks" ? (
+          <TasksScreen compact searchQuery={searchQuery} />
+        ) : threadListMode === "agents" ? (
           <AgentChatsList
             agents={agents}
             projects={projects}

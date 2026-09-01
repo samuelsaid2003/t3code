@@ -4,7 +4,7 @@ import { View } from "react-native";
 
 import type { MobileThreadListMode } from "./agent-chat-navigation";
 
-const VALUES = ["Threads", "Agents"];
+const VALUES = ["Threads", "Agents", "Tasks"];
 
 export function AgentListModeControl(props: {
   readonly mode: MobileThreadListMode;
@@ -25,12 +25,13 @@ export function AgentListModeControl(props: {
     >
       <SegmentedControl
         values={VALUES}
-        selectedIndex={props.mode === "threads" ? 0 : 1}
-        onChange={(event) =>
-          props.onChange(event.nativeEvent.selectedSegmentIndex === 1 ? "agents" : "threads")
-        }
+        selectedIndex={props.mode === "threads" ? 0 : props.mode === "agents" ? 1 : 2}
+        onChange={(event) => {
+          const index = event.nativeEvent.selectedSegmentIndex;
+          props.onChange(index === 0 ? "threads" : index === 1 ? "agents" : "tasks");
+        }}
         style={{ height: 32, width: "100%" }}
-        testID="threads-agents-segmented-control"
+        testID="threads-agents-tasks-segmented-control"
       />
     </View>
   );

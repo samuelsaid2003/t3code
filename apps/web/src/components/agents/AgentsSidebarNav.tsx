@@ -103,6 +103,14 @@ export function AgentsSidebarNav() {
     }
     void navigate({ to: "/" });
   };
+  const selectMode = (mode: "threads" | "agents" | "tasks") => {
+    if (mode === "tasks") {
+      closeMobileSidebar();
+      void navigate({ to: "/tasks" });
+      return;
+    }
+    if (mode === "threads") openThreads();
+  };
   const openAgent = (agent: (typeof agents)[number]) => {
     closeMobileSidebar();
     useRightPanelStore
@@ -163,7 +171,7 @@ export function AgentsSidebarNav() {
                 </TooltipTrigger>
                 <TooltipPopup side="right">New Agent Chat</TooltipPopup>
               </Tooltip>
-              <SidebarModeToggle mode="agents" onSelect={openThreads} />
+              <SidebarModeToggle mode="agents" onSelect={selectMode} />
             </div>
             {orderedProjects.length > 0 ? (
               <Menu>

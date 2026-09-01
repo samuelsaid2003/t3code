@@ -1951,29 +1951,36 @@ export default function Sidebar() {
     [routeDraftThread, routeTarget],
   );
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
-  const openAgentChats = useCallback(() => {
-    const lastThreadTarget: PersistedThreadRouteTarget | null = routeTarget
-      ? routeTarget.kind === "server"
-        ? {
-            kind: "server",
-            environmentId: routeTarget.threadRef.environmentId,
-            threadId: routeTarget.threadRef.threadId,
-          }
-        : { kind: "draft", draftId: routeTarget.draftId }
-      : null;
-    if (lastThreadTarget) setLastThreadRouteTarget(lastThreadTarget);
-    if (!agentIndexTarget) {
-      void router.navigate({ to: "/agents" });
-      return;
-    }
-    void router.navigate({
-      to: "/agents/$environmentId/$threadId",
-      params: {
-        environmentId: agentIndexTarget.environmentId,
-        threadId: agentIndexTarget.id,
-      },
-    });
-  }, [agentIndexTarget, routeTarget, router, setLastThreadRouteTarget]);
+  const openAlternateMode = useCallback(
+    (mode: "threads" | "agents" | "tasks") => {
+      if (mode === "tasks") {
+        void router.navigate({ to: "/tasks" });
+        return;
+      }
+      const lastThreadTarget: PersistedThreadRouteTarget | null = routeTarget
+        ? routeTarget.kind === "server"
+          ? {
+              kind: "server",
+              environmentId: routeTarget.threadRef.environmentId,
+              threadId: routeTarget.threadRef.threadId,
+            }
+          : { kind: "draft", draftId: routeTarget.draftId }
+        : null;
+      if (lastThreadTarget) setLastThreadRouteTarget(lastThreadTarget);
+      if (!agentIndexTarget) {
+        void router.navigate({ to: "/agents" });
+        return;
+      }
+      void router.navigate({
+        to: "/agents/$environmentId/$threadId",
+        params: {
+          environmentId: agentIndexTarget.environmentId,
+          threadId: agentIndexTarget.id,
+        },
+      });
+    },
+    [agentIndexTarget, routeTarget, router, setLastThreadRouteTarget],
+  );
   const routeTargetRef = useRef(routeTarget);
   routeTargetRef.current = routeTarget;
   // Post-settle navigation validates against the CURRENT route, not the one
@@ -3802,7 +3809,7 @@ export default function Sidebar() {
                   </TooltipPopup>
                 </Tooltip>
               </div>
-              <SidebarModeToggle mode="threads" onSelect={openAgentChats} />
+              <SidebarModeToggle mode="threads" onSelect={openAlternateMode} />
             </div>
             {projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">

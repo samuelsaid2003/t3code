@@ -3,10 +3,10 @@
 Agent Chats are persistent coding teammates. Each one belongs to a project and keeps its own
 standing instructions, model, working mode, conversation, and scheduled routines.
 
-Use the compact **Threads / Agent Chats** switch beside the new-chat button at the top of the
-sidebar. The Agent Chats sidebar has the same search, project filter, provider usage, and utility
+Use the compact **Threads / Agent Chats / Tasks** switch beside the new-chat button at the top of
+the sidebar. The Agent Chats sidebar has the same search, project filter, provider usage, and utility
 controls as the Threads sidebar. Opening Agent Chats again restores the Agent Chat you last used.
-Switching back restores the exact thread or draft you left.
+Switching back restores the exact thread or draft you left. Tasks opens the shared task list.
 
 Choose **New Agent Chat** to create one, then give it a name, project, and standing instructions.
 Its chat works like any other T3 thread. Use the Agent panel on the right to revise instructions or
@@ -27,12 +27,18 @@ When **Allow routine management** is on, you can ask the Agent Chat to create, e
 delete, list, or immediately run its own routines. Those actions appear as normal tool calls and use
 the same routine history and scheduler as the Agent panel.
 
+When **Allow task management** is on, the Agent Chat can list, create, update, move, complete, and
+delete Tasks in its current environment. Project and thread links must point to that same
+environment. Turning the permission off removes the task tools from the Agent Chat's next provider
+session.
+
 ## On iPhone and iPad
 
-Use the native **Threads / Agents** control at the top of Home or the iPad sidebar. Agents replace
-the normal thread list instead of mixing into it. Agent Chats use the full chat experience, including
-messages, tools, diffs, approvals, files, terminal access, and composer controls. Model, reasoning,
-auto/access, and interaction changes save immediately for an Agent Chat.
+Use the native **Threads / Agents / Tasks** control at the top of Home or the iPad sidebar. Agents
+replace the normal thread list instead of mixing into it, while Tasks opens the shared checklist or
+Kanban view. Agent Chats use the full chat experience, including messages, tools, diffs, approvals,
+files, terminal access, and composer controls. Model, reasoning, auto/access, and interaction changes
+save immediately for an Agent Chat.
 
 The app starts in Threads after a cold launch. It remembers your last Agent Chat independently; on
 iPad, returning to Agents reopens it, while iPhone leaves you in the Agent list until you choose one.

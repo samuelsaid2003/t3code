@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { ProjectId, ProviderInstanceId, TaskId, ThreadId } from "@t3tools/contracts";
 import type { OrchestrationShellSnapshot, OrchestrationShellStreamEvent } from "@t3tools/contracts";
 
 import { applyShellStreamEvent } from "./shellReducer.ts";
@@ -43,6 +43,20 @@ const stubThread = {
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
   session: null,
+} as const;
+
+const stubTask = {
+  id: TaskId.make("task-1"),
+  title: "Test task",
+  notes: null,
+  status: "todo" as const,
+  dueAt: null,
+  projectId: ProjectId.make("project-1"),
+  threadId: ThreadId.make("thread-1"),
+  position: 0,
+  createdAt: "2026-04-01T00:00:00.000Z",
+  updatedAt: "2026-04-01T00:00:00.000Z",
+  completedAt: null,
 } as const;
 
 describe("applyShellStreamEvent", () => {
@@ -174,6 +188,32 @@ describe("applyShellStreamEvent", () => {
 
       expect(next.threads).toHaveLength(0);
       expect(next.snapshotSequence).toBe(6);
+    });
+  });
+
+  describe("task shell events", () => {
+    it("adds, updates, and removes a task while preserving old snapshots", () => {
+      const added = applyShellStreamEvent(baseSnapshot, {
+        kind: "task-upserted",
+        sequence: 7,
+        task: stubTask,
+      });
+      expect(added.tasks).toEqual([stubTask]);
+
+      const updated = applyShellStreamEvent(added, {
+        kind: "task-upserted",
+        sequence: 8,
+        task: { ...stubTask, title: "Updated task" },
+      });
+      expect(updated.tasks?.[0]?.title).toBe("Updated task");
+
+      const removed = applyShellStreamEvent(updated, {
+        kind: "task-removed",
+        sequence: 9,
+        taskId: stubTask.id,
+      });
+      expect(removed.tasks).toEqual([]);
+      expect(baseSnapshot.tasks).toBeUndefined();
     });
   });
 

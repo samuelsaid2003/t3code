@@ -57,6 +57,7 @@ import {
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
+  tasks: "projection.tasks",
   threads: "projection.threads",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
@@ -577,6 +578,66 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
       }
     });
+
+    const upsertTask = Effect.fn("upsertTask")(function* (
+      task: Extract<OrchestrationEvent, { type: "task.created" }>["payload"]["task"],
+    ) {
+      yield* sql`
+        INSERT INTO projection_tasks (
+          task_id, title, notes, status, due_at, project_id, thread_id,
+          position, created_at, updated_at, completed_at
+        ) VALUES (
+          ${task.id}, ${task.title}, ${task.notes}, ${task.status}, ${task.dueAt},
+          ${task.projectId}, ${task.threadId}, ${task.position}, ${task.createdAt},
+          ${task.updatedAt}, ${task.completedAt}
+        )
+        ON CONFLICT(task_id) DO UPDATE SET
+          title = excluded.title,
+          notes = excluded.notes,
+          status = excluded.status,
+          due_at = excluded.due_at,
+          project_id = excluded.project_id,
+          thread_id = excluded.thread_id,
+          position = excluded.position,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at,
+          completed_at = excluded.completed_at
+      `.pipe(Effect.mapError(toPersistenceSqlError("ProjectionPipeline.tasks.upsert")));
+    });
+
+    const applyTasksProjection: ProjectorDefinition["apply"] = Effect.fn("applyTasksProjection")(
+      function* (event, _attachmentSideEffects) {
+        switch (event.type) {
+          case "task.created":
+          case "task.updated":
+          case "task.moved":
+          case "task.reordered":
+            yield* upsertTask(event.payload.task);
+            return;
+          case "task.deleted":
+            yield* sql`DELETE FROM projection_tasks WHERE task_id = ${event.payload.taskId}`.pipe(
+              Effect.mapError(toPersistenceSqlError("ProjectionPipeline.tasks.delete")),
+            );
+            return;
+          case "project.deleted":
+            yield* sql`
+            UPDATE projection_tasks
+            SET project_id = NULL, thread_id = NULL, updated_at = ${event.payload.deletedAt}
+            WHERE project_id = ${event.payload.projectId}
+          `.pipe(Effect.mapError(toPersistenceSqlError("ProjectionPipeline.tasks.unlinkProject")));
+            return;
+          case "thread.deleted":
+            yield* sql`
+            UPDATE projection_tasks
+            SET thread_id = NULL, updated_at = ${event.payload.deletedAt}
+            WHERE thread_id = ${event.payload.threadId}
+          `.pipe(Effect.mapError(toPersistenceSqlError("ProjectionPipeline.tasks.unlinkThread")));
+            return;
+          default:
+            return;
+        }
+      },
+    );
 
     const refreshThreadShellSummary = Effect.fn("refreshThreadShellSummary")(function* (
       threadId: ThreadId,
@@ -1856,6 +1917,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.projects,
         apply: applyProjectsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.tasks,
+        apply: applyTasksProjection,
       },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,

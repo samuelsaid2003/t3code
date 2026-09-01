@@ -256,10 +256,19 @@ function AdaptiveWorkspaceLayoutContent(
   const [threadListMode, setThreadListModeState] = useState<MobileThreadListMode>("threads");
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [agentSearchQuery, setAgentSearchQuery] = useState("");
+  const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const primarySidebarSearchQuery =
-    threadListMode === "agents" ? agentSearchQuery : threadSearchQuery;
+    threadListMode === "agents"
+      ? agentSearchQuery
+      : threadListMode === "tasks"
+        ? taskSearchQuery
+        : threadSearchQuery;
   const setPrimarySidebarSearchQuery =
-    threadListMode === "agents" ? setAgentSearchQuery : setThreadSearchQuery;
+    threadListMode === "agents"
+      ? setAgentSearchQuery
+      : threadListMode === "tasks"
+        ? setTaskSearchQuery
+        : setThreadSearchQuery;
   const threads = useThreadShells();
   const lastStandardThreadKeyRef = useRef<string | null>(null);
   const lastAgentThreadKeyRef = useRef(props.lastAgentThreadKey);
@@ -454,6 +463,16 @@ function AdaptiveWorkspaceLayoutContent(
       if (mode === threadListMode) return;
       setThreadListModeState(mode);
       if (!layout.usesSplitView) return;
+
+      if (mode === "tasks") {
+        setFileInspectorPreferredVisible(false);
+        if (parseActiveThreadPath(pathname) !== null) {
+          navigation.dispatch(StackActions.replace("Home"));
+        } else {
+          navigation.navigate("Home");
+        }
+        return;
+      }
 
       const target =
         mode === "agents"

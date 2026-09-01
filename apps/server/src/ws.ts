@@ -41,6 +41,7 @@ import {
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   type ProjectId,
+  TaskId,
   type ProjectEntriesFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
@@ -696,6 +697,19 @@ const makeWsRpcLayer = (
                 projectId: event.payload.projectId,
               }),
             );
+          case "task.deleted":
+            return Effect.succeed(
+              Option.some({
+                kind: "task-removed" as const,
+                sequence: event.sequence,
+                taskId: event.payload.taskId,
+              }),
+            );
+          case "task.created":
+          case "task.updated":
+          case "task.moved":
+          case "task.reordered":
+            return taskUpsertOrRemove(event.payload.task.id, event.sequence);
           case "thread.deleted":
           case "thread.archived":
             return Effect.succeed(
@@ -721,7 +735,7 @@ const makeWsRpcLayer = (
       // If both attempts fail, log and drop the stream item; treating an error as
       // a missing row would incorrectly remove a still-active aggregate.
       const retryShellProjectionRead = <A, E>(
-        aggregateKind: "project" | "thread",
+        aggregateKind: "project" | "thread" | "task",
         aggregateId: string,
         read: Effect.Effect<A, E>,
       ): Effect.Effect<Option.Option<A>, never, never> =>
@@ -800,6 +814,41 @@ const makeWsRpcLayer = (
                     kind: "thread-upserted" as const,
                     sequence,
                     thread: nextThread,
+                  }),
+              }),
+            ),
+          ),
+        );
+
+      const taskUpsertOrRemove = (
+        taskId: TaskId,
+        sequence: number,
+      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> =>
+        retryShellProjectionRead(
+          "task",
+          taskId,
+          projectionSnapshotQuery
+            .getShellSnapshot()
+            .pipe(
+              Effect.map((snapshot) =>
+                Option.fromNullishOr(snapshot.tasks?.find((task) => task.id === taskId)),
+              ),
+            ),
+        ).pipe(
+          Effect.map(
+            Option.flatMap((task) =>
+              Option.match(task, {
+                onNone: () =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "task-removed" as const,
+                    sequence,
+                    taskId,
+                  }),
+                onSome: (nextTask) =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "task-upserted" as const,
+                    sequence,
+                    task: nextTask,
                   }),
               }),
             ),

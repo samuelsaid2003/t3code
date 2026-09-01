@@ -36,6 +36,9 @@ import type { MobileThreadListMode } from "../agents/agent-chat-navigation";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
+const searchLabelForMode = (mode: MobileThreadListMode) =>
+  mode === "agents" ? "Search Agent Chats" : mode === "tasks" ? "Search Tasks" : "Search threads";
+
 export function HomeHeader(props: {
   readonly mode: MobileThreadListMode;
   readonly environments: ReadonlyArray<HomeHeaderEnvironment>;
@@ -281,10 +284,10 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
               type="monochrome"
             />
             <TextInput
-              accessibilityLabel={props.mode === "agents" ? "Search Agent Chats" : "Search threads"}
+              accessibilityLabel={searchLabelForMode(props.mode)}
               autoCapitalize="none"
               onChangeText={props.onSearchQueryChange}
-              placeholder={props.mode === "agents" ? "Search Agent Chats" : "Search threads"}
+              placeholder={searchLabelForMode(props.mode)}
               placeholderTextColorClassName="accent-placeholder"
               className="flex-1 py-2.5 text-base font-sans text-foreground"
               value={props.searchQuery}
@@ -370,7 +373,12 @@ function IosHomeHeader(props: HomeHeaderProps) {
                         }
                       : {}),
                     onSearchTextChange: props.onSearchQueryChange,
-                    placeholder: props.mode === "agents" ? "Search Agent Chats" : "Search",
+                    placeholder:
+                      props.mode === "agents"
+                        ? "Search Agent Chats"
+                        : props.mode === "tasks"
+                          ? "Search Tasks"
+                          : "Search",
                     searchTextChangeId: "home-search-text",
                     showsSearchDismissButton: true,
                   }),
@@ -383,7 +391,12 @@ function IosHomeHeader(props: HomeHeaderProps) {
                   ref: searchBarRef,
                   autoCapitalize: "none" as const,
                   hideNavigationBar: false,
-                  placeholder: props.mode === "agents" ? "Search Agent Chats" : "Search",
+                  placeholder:
+                    props.mode === "agents"
+                      ? "Search Agent Chats"
+                      : props.mode === "tasks"
+                        ? "Search Tasks"
+                        : "Search",
                   onCancelButtonPress: () => {
                     props.onSearchQueryChange("");
                   },
@@ -395,7 +408,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
         }}
       />
 
-      {NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED || props.mode === "agents" ? null : (
+      {NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED || props.mode !== "threads" ? null : (
         <NativeHeaderToolbar placement="bottom">
           <NativeHeaderToolbar.Menu
             accessibilityLabel="Filter and sort threads"

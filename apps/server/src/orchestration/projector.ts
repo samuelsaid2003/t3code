@@ -14,6 +14,11 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
+  TaskCreatedPayload,
+  TaskUpdatedPayload,
+  TaskMovedPayload,
+  TaskReorderedPayload,
+  TaskDeletedPayload,
   ThreadActivityAppendedPayload,
   ThreadAgentProfileUpdatedPayload,
   ThreadAgentRoutineUpsertedPayload,
@@ -198,6 +203,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    tasks: [],
     updatedAt: nowIso,
   };
 }
@@ -211,6 +217,7 @@ export function projectEvent(
     snapshotSequence: event.sequence,
     updatedAt: event.occurredAt,
   };
+  const nextTasks = nextBase.tasks ?? [];
 
   switch (event.type) {
     case "project.created":
@@ -283,6 +290,46 @@ export function projectEvent(
                 }
               : project,
           ),
+          tasks: nextTasks.map((task) =>
+            task.projectId === payload.projectId
+              ? { ...task, projectId: null, threadId: null, updatedAt: payload.deletedAt }
+              : task,
+          ),
+        })),
+      );
+
+    case "task.created":
+      return decodeForEvent(TaskCreatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map(({ task }) => ({
+          ...nextBase,
+          tasks: nextTasks.some((entry) => entry.id === task.id)
+            ? nextTasks.map((entry) => (entry.id === task.id ? task : entry))
+            : [...nextTasks, task],
+        })),
+      );
+
+    case "task.updated":
+    case "task.moved":
+    case "task.reordered": {
+      const schema =
+        event.type === "task.updated"
+          ? TaskUpdatedPayload
+          : event.type === "task.moved"
+            ? TaskMovedPayload
+            : TaskReorderedPayload;
+      return decodeForEvent(schema, event.payload, event.type, "payload").pipe(
+        Effect.map(({ task }) => ({
+          ...nextBase,
+          tasks: nextTasks.map((entry) => (entry.id === task.id ? task : entry)),
+        })),
+      );
+    }
+
+    case "task.deleted":
+      return decodeForEvent(TaskDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          tasks: nextTasks.filter((task) => task.id !== payload.taskId),
         })),
       );
 
@@ -491,6 +538,11 @@ export function projectEvent(
             deletedAt: payload.deletedAt,
             updatedAt: payload.deletedAt,
           }),
+          tasks: nextTasks.map((task) =>
+            task.threadId === payload.threadId
+              ? { ...task, threadId: null, updatedAt: payload.deletedAt }
+              : task,
+          ),
         })),
       );
 

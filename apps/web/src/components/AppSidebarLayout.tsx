@@ -19,6 +19,7 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { AgentsSidebarNav } from "./agents/AgentsSidebarNav";
+import { TasksSidebarNav } from "./tasks/TasksSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import {
   resolveSidebarStageFocusRingOffsetClass,
@@ -148,6 +149,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const isOnAgents = pathname === "/agents" || pathname.startsWith("/agents/");
+  const isOnTasks = pathname === "/tasks" || pathname.startsWith("/tasks/");
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -239,11 +241,14 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             </>
           ) : (
             <>
-              <div className={isOnAgents ? "hidden" : "contents"}>
+              <div className={isOnAgents || isOnTasks ? "hidden" : "contents"}>
                 {legacySidebarEnabled ? <LegacyThreadSidebar /> : <ThreadSidebar />}
               </div>
               <div className={isOnAgents ? "contents" : "hidden"}>
                 <AgentsSidebarNav />
+              </div>
+              <div className={isOnTasks ? "contents" : "hidden"}>
+                <TasksSidebarNav />
               </div>
             </>
           )}

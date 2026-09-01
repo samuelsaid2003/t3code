@@ -356,6 +356,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
 
+      const linkedTasks = (readModel.tasks ?? []).filter(
+        (task) => task.projectId === command.projectId,
+      );
+      if (linkedTasks.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...linkedTasks.map(
+              (task): Extract<OrchestrationCommand, { type: "task.update" }> => ({
+                type: "task.update",
+                commandId: command.commandId,
+                taskId: task.id,
+                projectId: null,
+                threadId: null,
+              }),
+            ),
+            command,
+          ],
+        });
+      }
+
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -369,6 +390,202 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: command.projectId,
           deletedAt: occurredAt,
         },
+      };
+    }
+
+    case "task.create": {
+      if ((readModel.tasks ?? []).some((task) => task.id === command.taskId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Task '${command.taskId}' already exists and cannot be created twice.`,
+        });
+      }
+      if (command.title.trim().length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Task title cannot be empty.",
+        });
+      }
+      const linkedThread =
+        command.threadId == null
+          ? undefined
+          : readModel.threads.find(
+              (thread) => thread.id === command.threadId && thread.deletedAt === null,
+            );
+      if (command.threadId != null && linkedThread === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Linked thread '${command.threadId}' does not exist.`,
+        });
+      }
+      const projectId = command.projectId ?? linkedThread?.projectId ?? null;
+      if (
+        projectId !== null &&
+        !readModel.projects.some(
+          (project) => project.id === projectId && project.deletedAt === null,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Linked project '${projectId}' does not exist.`,
+        });
+      }
+      if (linkedThread !== undefined && projectId !== linkedThread.projectId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Linked thread '${linkedThread.id}' does not belong to project '${projectId}'.`,
+        });
+      }
+      const status = command.status ?? "backlog";
+      const position =
+        command.position ??
+        Math.max(
+          0,
+          ...(readModel.tasks ?? [])
+            .filter((task) => task.status === status)
+            .map((task) => task.position + 1),
+        );
+      const task = {
+        id: command.taskId,
+        title: command.title,
+        notes: command.notes ?? null,
+        status,
+        dueAt: command.dueAt ?? null,
+        projectId,
+        threadId: linkedThread?.id ?? null,
+        position,
+        createdAt: command.createdAt,
+        updatedAt: command.createdAt,
+        completedAt: status === "done" ? command.createdAt : null,
+      };
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "task",
+          aggregateId: command.taskId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "task.created",
+        payload: { task },
+      };
+    }
+
+    case "task.update": {
+      const existing = (readModel.tasks ?? []).find((task) => task.id === command.taskId);
+      if (existing === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Task '${command.taskId}' does not exist.`,
+        });
+      }
+      if (command.title !== undefined && command.title.trim().length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Task title cannot be empty.",
+        });
+      }
+      const nextThreadId = command.threadId !== undefined ? command.threadId : existing.threadId;
+      const linkedThread =
+        nextThreadId == null
+          ? undefined
+          : readModel.threads.find(
+              (thread) => thread.id === nextThreadId && thread.deletedAt === null,
+            );
+      if (nextThreadId !== null && linkedThread === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Linked thread '${nextThreadId}' does not exist.`,
+        });
+      }
+      const requestedProjectId =
+        command.projectId !== undefined ? command.projectId : existing.projectId;
+      const nextProjectId = requestedProjectId ?? linkedThread?.projectId ?? null;
+      if (
+        nextProjectId !== null &&
+        !readModel.projects.some(
+          (project) => project.id === nextProjectId && project.deletedAt === null,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Linked project '${nextProjectId}' does not exist.`,
+        });
+      }
+      if (linkedThread !== undefined && nextProjectId !== linkedThread.projectId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Linked thread '${linkedThread.id}' does not belong to project '${nextProjectId}'.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const task = {
+        ...existing,
+        ...(command.title !== undefined ? { title: command.title } : {}),
+        ...(command.notes !== undefined ? { notes: command.notes } : {}),
+        ...(command.dueAt !== undefined ? { dueAt: command.dueAt } : {}),
+        projectId: nextProjectId,
+        threadId: linkedThread?.id ?? null,
+        updatedAt: occurredAt,
+      };
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "task",
+          aggregateId: command.taskId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "task.updated",
+        payload: { task },
+      };
+    }
+
+    case "task.move":
+    case "task.reorder": {
+      const existing = (readModel.tasks ?? []).find((task) => task.id === command.taskId);
+      if (existing === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Task '${command.taskId}' does not exist.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const status = command.type === "task.move" ? command.status : existing.status;
+      const task = {
+        ...existing,
+        status,
+        position: command.position,
+        updatedAt: occurredAt,
+        completedAt: status === "done" ? (existing.completedAt ?? occurredAt) : null,
+      };
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "task",
+          aggregateId: command.taskId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: command.type === "task.move" ? "task.moved" : "task.reordered",
+        payload: { task },
+      };
+    }
+
+    case "task.delete": {
+      if (!(readModel.tasks ?? []).some((task) => task.id === command.taskId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Task '${command.taskId}' does not exist.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "task",
+          aggregateId: command.taskId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "task.deleted",
+        payload: { taskId: command.taskId, deletedAt: occurredAt },
       };
     }
 
@@ -662,6 +879,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 type: "thread.delete",
                 commandId: command.commandId,
                 threadId: child.id,
+              }),
+            ),
+            command,
+          ],
+        });
+      }
+      const linkedTasks = (readModel.tasks ?? []).filter(
+        (task) => task.threadId === command.threadId,
+      );
+      if (linkedTasks.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...linkedTasks.map(
+              (task): Extract<OrchestrationCommand, { type: "task.update" }> => ({
+                type: "task.update",
+                commandId: command.commandId,
+                taskId: task.id,
+                threadId: null,
               }),
             ),
             command,

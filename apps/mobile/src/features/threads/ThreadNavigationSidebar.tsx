@@ -88,6 +88,7 @@ import {
 } from "./threadListV2";
 import { AgentChatsList } from "../agents/AgentChatsList";
 import { AgentListModeControl } from "../agents/AgentListModeControl";
+import { TasksScreen } from "../tasks/TasksScreen";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 
 /** The sidebar list serves both lists: v1 grouped items or, when the Thread
@@ -147,10 +148,32 @@ function ThreadNavigationSidebarPane(
   props: ThreadNavigationSidebarProps & { readonly nativeChrome: boolean },
 ) {
   const { threadListMode } = useAdaptiveWorkspaceLayout();
-  return threadListMode === "agents" ? (
+  return threadListMode === "tasks" ? (
+    <TaskNavigationSidebarPane {...props} />
+  ) : threadListMode === "agents" ? (
     <AgentNavigationSidebarPane {...props} />
   ) : (
     <StandardThreadNavigationSidebarPane {...props} />
+  );
+}
+
+function TaskNavigationSidebarPane(
+  props: ThreadNavigationSidebarProps & { readonly nativeChrome: boolean },
+) {
+  const insets = useSafeAreaInsets();
+  const { setThreadListMode, threadListMode } = useAdaptiveWorkspaceLayout();
+  return (
+    <View className="flex-1 bg-drawer" style={{ paddingTop: props.nativeChrome ? 0 : insets.top }}>
+      {props.nativeChrome ? (
+        <NativeStackScreenOptions options={{ title: "Tasks", headerSearchBarOptions: undefined }} />
+      ) : null}
+      <AgentListModeControl
+        mode={threadListMode}
+        nativeHeaderInset={props.nativeChrome}
+        onChange={setThreadListMode}
+      />
+      <TasksScreen compact searchQuery={props.searchQuery} />
+    </View>
   );
 }
 

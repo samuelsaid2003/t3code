@@ -1,6 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
-export type MobileThreadListMode = "threads" | "agents";
+export type MobileThreadListMode = "threads" | "agents" | "tasks";
 
 export function mobileThreadShellKey(
   thread: Pick<EnvironmentThreadShell, "environmentId" | "id">,

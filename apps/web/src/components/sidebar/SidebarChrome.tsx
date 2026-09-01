@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   BotIcon,
   ChartNoAxesColumnIcon,
+  CheckSquare2Icon,
   GitPullRequestIcon,
   MessageSquareIcon,
   RefreshCwIcon,
@@ -18,6 +19,7 @@ import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { primaryServerProvidersAtom, serverEnvironment } from "../../state/server";
+import { environmentTasks } from "../../state/tasks";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ClaudeAI, GrokIcon, OpenAI } from "../Icons";
 import {
@@ -159,12 +161,14 @@ function SidebarUtilityItem({
   );
 }
 
+export type SidebarMode = "threads" | "agents" | "tasks";
+
 export const SidebarModeToggle = memo(function SidebarModeToggle({
   mode,
   onSelect,
 }: {
-  mode: "threads" | "agents";
-  onSelect: () => void;
+  mode: SidebarMode;
+  onSelect: (mode: SidebarMode) => void;
 }) {
   if (!isElectron) return null;
 
@@ -178,6 +182,11 @@ export const SidebarModeToggle = memo(function SidebarModeToggle({
       mode: "agents" as const,
       label: "Agent Chats",
       icon: <BotIcon />,
+    },
+    {
+      mode: "tasks" as const,
+      label: "Tasks",
+      icon: <CheckSquare2Icon />,
     },
   ];
 
@@ -202,7 +211,7 @@ export const SidebarModeToggle = memo(function SidebarModeToggle({
                       ? "bg-sidebar-row-active text-sidebar-foreground shadow-sm ring-1 ring-sidebar-border/65"
                       : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
                   )}
-                  onClick={active ? undefined : onSelect}
+                  onClick={active ? undefined : () => onSelect(item.mode)}
                   type="button"
                 >
                   {item.icon}
@@ -502,6 +511,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
+      {isElectron ? <SidebarTasksCard /> : null}
       {claudeUsageProviders.map(({ provider, usage }) => (
         <SidebarClaudeUsageMeter
           key={provider.instanceId}
@@ -524,3 +534,100 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     </SidebarFooter>
   );
 });
+
+function SidebarTasksCard() {
+  const navigate = useNavigate();
+  const tasks = useAtomValue(environmentTasks.tasksAtom);
+  const [expanded, setExpanded] = useState(false);
+  const incomplete = tasks
+    .filter((task) => task.status !== "done")
+    .toSorted((left, right) => {
+      if (left.dueAt === null && right.dueAt !== null) return 1;
+      if (left.dueAt !== null && right.dueAt === null) return -1;
+      return (
+        (left.dueAt ?? "").localeCompare(right.dueAt ?? "") ||
+        left.createdAt.localeCompare(right.createdAt)
+      );
+    });
+  const visible = incomplete.slice(0, 5);
+  const nearest = visible[0];
+
+  const dueLabel = (dueAt: string | null) => {
+    if (!dueAt) return "No due date";
+    const date = new Date(dueAt);
+    const overdue = date.getTime() < Date.now();
+    const label = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+      date,
+    );
+    return overdue ? `Overdue · ${label}` : `Due ${label}`;
+  };
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-sidebar-border/70 bg-sidebar-control-surface/55">
+      <button
+        aria-expanded={expanded}
+        className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left outline-hidden hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        <CheckSquare2Icon className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[10px] font-semibold tracking-[0.12em] text-sidebar-muted-foreground uppercase">
+            Tasks
+          </span>
+          {!expanded ? (
+            <span className="block truncate text-xs text-sidebar-foreground">
+              {nearest?.title ?? "No incomplete tasks"}
+            </span>
+          ) : null}
+        </span>
+        <span className="text-[10px] tabular-nums text-sidebar-muted-foreground">
+          {incomplete.length}
+        </span>
+      </button>
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none",
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="space-y-0.5 border-t border-sidebar-border/60 p-1.5">
+            {visible.map((task) => (
+              <button
+                className="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left hover:bg-sidebar-row-hover"
+                key={`${task.environmentId}:${task.id}`}
+                onClick={() => void navigate({ to: "/tasks" })}
+                type="button"
+              >
+                <span className="block truncate text-xs text-sidebar-foreground">{task.title}</span>
+                <span
+                  className={cn(
+                    "mt-0.5 block text-[10px]",
+                    task.dueAt && new Date(task.dueAt).getTime() < Date.now()
+                      ? "text-destructive"
+                      : "text-sidebar-muted-foreground",
+                  )}
+                >
+                  {dueLabel(task.dueAt)}
+                </span>
+              </button>
+            ))}
+            {visible.length === 0 ? (
+              <div className="px-2 py-1.5 text-[11px] text-sidebar-muted-foreground">
+                You are all caught up.
+              </div>
+            ) : null}
+            <button
+              className="w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-[11px] font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              onClick={() => void navigate({ to: "/tasks" })}
+              type="button"
+            >
+              Open all tasks
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

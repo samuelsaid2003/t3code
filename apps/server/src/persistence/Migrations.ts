@@ -60,6 +60,7 @@ import Migration0044 from "./Migrations/044_AgentChats.ts";
 import Migration0045 from "./Migrations/045_AgentRoutineMessageSource.ts";
 import Migration0046 from "./Migrations/046_SideChats.ts";
 import Migration0047 from "./Migrations/047_MessageExternalDelivery.ts";
+import Migration0048 from "./Migrations/048_Tasks.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -119,6 +120,7 @@ export const migrationEntries = [
   [45, "AgentRoutineMessageSource", Migration0045],
   [46, "SideChats", Migration0046],
   [47, "MessageExternalDelivery", Migration0047],
+  [48, "Tasks", Migration0048],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

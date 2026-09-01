@@ -40,6 +40,11 @@ normalized to the existing hour/minute domain shape, and results include the pro
 `nextRunAt`. Changing either Agent capability stops an existing provider session so the next turn
 receives a freshly scoped credential.
 
+Task tools use the same boundary. They derive the environment from the thread-scoped credential,
+re-check `allowTaskManagement`, and dispatch task commands through the orchestration engine. They do
+not accept an environment ID. Optional project and thread links are validated by the task decider,
+which prevents a model from crossing the server boundary by supplying arbitrary identifiers.
+
 ## Projection and UI
 
 Agent metadata is projected into `projection_threads` as JSON alongside `thread_kind`. Agent threads
