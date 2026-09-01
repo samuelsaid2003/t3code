@@ -8,6 +8,7 @@ const APPEARANCE_VARIANT_PATTERN = /\b(?:dark|light):(?=\S)/u;
 const APPEARANCE_VARIANT_MESSAGE =
   "dark:/light: utilities do not follow registered custom themes; use an adaptive semantic token.";
 const THEME_INTEROP_ALLOWLIST = new Set([
+  "features/agents/AgentChatsList.tsx",
   "features/archive/ArchivedThreadsScreen.tsx",
   "features/connection/ConnectionsNewRouteScreen.tsx",
   "features/files/FileMarkdownPreview.tsx",
@@ -25,6 +26,7 @@ const THEME_INTEROP_ALLOWLIST = new Set([
   "features/threads/NewTaskDraftScreen.tsx",
   "features/threads/ThreadComposer.tsx",
   "features/threads/ThreadFeed.tsx",
+  "features/threads/ThreadFeedSourceFilterControl.tsx",
   "features/threads/ThreadSettingsSheet.tsx",
   "features/threads/git/GitOverviewSheet.tsx",
   "features/threads/thread-list-items.tsx",
