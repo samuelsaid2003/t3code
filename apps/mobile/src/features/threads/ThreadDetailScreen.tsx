@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
+import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import type {
@@ -130,7 +131,7 @@ export interface ThreadDetailScreenProps {
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
   readonly onOpenConnectionEditor: () => void;
   readonly onChangeDraftMessage: (value: string) => void;
-  readonly onPickDraftImages: () => Promise<void>;
+  readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
@@ -147,7 +148,7 @@ export interface ThreadDetailScreenProps {
   readonly onSelectUserInputOption: (
     requestId: ApprovalRequestId,
     question: UserInputQuestion,
-    label: string,
+    value: string,
   ) => void;
   readonly onChangeUserInputCustomAnswer: (
     requestId: ApprovalRequestId,
@@ -546,12 +547,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
-  const selectedProviderSkills = useMemo(
-    () =>
-      props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
-        ?.skills ?? [],
-    [props.serverConfig, selectedInstanceId],
-  );
+  const selectedProviderSkills = useMemo(() => {
+    const provider = props.serverConfig?.providers.find(
+      (candidate) => candidate.instanceId === selectedInstanceId,
+    );
+    return provider
+      ? resolveProviderSkillsForCwd(provider, props.threadCwd ?? props.projectWorkspaceRoot)
+      : [];
+  }, [props.projectWorkspaceRoot, props.serverConfig, props.threadCwd, selectedInstanceId]);
 
   useLayoutEffect(() => {
     selectedThreadKeyRef.current = selectedThreadKey;
@@ -729,7 +732,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
           onTouchCancel={handleFeedTouchCancel}
         >
           <ThreadFeed
-            key={props.selectedThread.id}
+            key={selectedThreadKey}
             environmentId={props.environmentId}
             threadId={props.selectedThread.id}
             workspaceRoot={props.threadCwd}
@@ -868,10 +871,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   serverConfig={props.serverConfig}
                   queueCount={props.selectedThreadQueueCount}
                   environmentId={props.environmentId}
-                  projectCwd={props.projectWorkspaceRoot}
+                  projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
                   bottomInset={composerBottomInset}
                   onChangeDraftMessage={props.onChangeDraftMessage}
-                  onPickDraftImages={props.onPickDraftImages}
+                  onPickDraftMedia={props.onPickDraftMedia}
                   onPickDraftFiles={props.onPickDraftFiles}
                   onNativePasteImages={props.onNativePasteImages}
                   onRemoveDraftImage={props.onRemoveDraftImage}

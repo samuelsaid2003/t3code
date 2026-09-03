@@ -188,7 +188,9 @@ export function AgentsSidebarNav() {
                       className="size-4 shrink-0"
                       cwd={selectedProject.workspaceRoot}
                       environmentId={selectedProject.environmentId}
+                      projectName={selectedProject.title}
                       faviconPath={selectedProject.faviconPath}
+                      projectIcon={selectedProject.projectIcon}
                     />
                   ) : (
                     <FolderIcon className="size-4 shrink-0" />
@@ -214,7 +216,9 @@ export function AgentsSidebarNav() {
                           className="size-4 shrink-0"
                           cwd={project.workspaceRoot}
                           environmentId={project.environmentId}
+                          projectName={project.title}
                           faviconPath={project.faviconPath}
+                          projectIcon={project.projectIcon}
                         />
                         <span className="min-w-0 truncate">{project.title}</span>
                       </MenuRadioItem>
@@ -262,7 +266,9 @@ export function AgentsSidebarNav() {
                             className="mt-0.5 size-4 shrink-0"
                             cwd={project.workspaceRoot}
                             environmentId={project.environmentId}
+                            projectName={project.title}
                             faviconPath={project.faviconPath}
+                            projectIcon={project.projectIcon}
                           />
                         ) : (
                           <BotIcon className="mt-0.5 size-4 shrink-0" />

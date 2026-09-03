@@ -5,6 +5,7 @@ import * as Cause from "effect/Cause";
 
 import {
   CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type EnvironmentId,
@@ -24,11 +25,13 @@ import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime"
 import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
 
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
+import { isModelSelectionUnavailable } from "../lib/modelOptions";
+import { resolveProviderInteractionMode } from "../features/threads/legacy-plan-mode";
 import {
   convertPastedImagesToAttachments,
   pasteComposerClipboard,
   pickComposerFiles,
-  pickComposerImages,
+  pickComposerMedia,
 } from "../lib/composerImages";
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
@@ -57,6 +60,10 @@ import { useThreadOutboxMessages } from "./use-thread-outbox";
 import { threadEnvironment } from "./threads";
 import { useAtomCommand } from "./use-atom-command";
 import { modelSelectionsEqual } from "../features/agents/agent-chat-settings";
+import {
+  composerAttachmentUploadBlockReason,
+  composerAttachmentUploadsAtom,
+} from "./composer-attachment-uploads";
 
 export function appendReviewCommentToDraft(input: {
   readonly environmentId: EnvironmentId;
@@ -152,7 +159,15 @@ export function useThreadComposerState() {
   const selectedThread = selectedThreadDetail ?? selectedThreadShell;
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
   const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
-  const interactionMode = selectedDraft?.interactionMode ?? selectedThread?.interactionMode ?? null;
+  const selectedProvider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
+    (provider) => provider.instanceId === modelSelection?.instanceId,
+  );
+  const interactionMode = selectedThread
+    ? resolveProviderInteractionMode(
+        selectedProvider,
+        selectedDraft?.interactionMode ?? selectedThread.interactionMode,
+      )
+    : null;
 
   useEffect(() => {
     if (!selectedThreadKey || selectedThreadShell?.kind !== "agent") return;
@@ -216,6 +231,16 @@ export function useThreadComposerState() {
     const thread = selectedThreadDetail ?? selectedThreadShell;
     const text = draft.text.trim();
     const attachments = draft.attachments;
+    if (
+      composerAttachmentUploadBlockReason({
+        environmentId: selectedThreadShell.environmentId,
+        attachments,
+        connected: selectedEnvironmentRuntime?.connectionState === "connected",
+        serverConfig: selectedEnvironmentRuntime?.serverConfig ?? null,
+        states: appAtomRegistry.get(composerAttachmentUploadsAtom),
+      }) !== null
+    )
+      return null;
     if (text.length === 0 && attachments.length === 0) {
       return null;
     }
@@ -231,8 +256,20 @@ export function useThreadComposerState() {
       return null;
     }
 
-    const provider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
-      (entry) => entry.instanceId === thread.modelSelection.instanceId,
+    const modelSelection = draft.modelSelection ?? thread.modelSelection;
+    const serverConfig = selectedEnvironmentRuntime?.serverConfig;
+    if (
+      selectedEnvironmentRuntime?.connectionState === "connected" &&
+      isModelSelectionUnavailable(serverConfig, modelSelection)
+    ) {
+      Alert.alert(
+        "Antigravity model unavailable",
+        "Open model settings to finish setup or choose another model.",
+      );
+      return null;
+    }
+    const provider = serverConfig?.providers.find(
+      (entry) => entry.instanceId === modelSelection.instanceId,
     );
     const feedbackCommand =
       attachments.length === 0 &&
@@ -309,9 +346,12 @@ export function useThreadComposerState() {
       commandId: CommandId.make(metadata.commandId),
       text,
       attachments,
-      modelSelection: draft.modelSelection ?? thread.modelSelection,
+      modelSelection,
       runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
-      interactionMode: draft.interactionMode ?? thread.interactionMode,
+      interactionMode: resolveProviderInteractionMode(
+        provider,
+        draft.interactionMode ?? thread.interactionMode,
+      ),
       createdAt: metadata.createdAt,
     });
     clearComposerDraftContent(threadKey, { deferAttachmentCleanup: true });
@@ -336,7 +376,8 @@ export function useThreadComposerState() {
     );
     return messageId;
   }, [
-    selectedEnvironmentRuntime?.serverConfig?.providers,
+    selectedEnvironmentRuntime?.connectionState,
+    selectedEnvironmentRuntime?.serverConfig,
     selectedThreadDetail,
     selectedThreadShell,
     uploadThreadFeedback,
@@ -354,26 +395,31 @@ export function useThreadComposerState() {
     [selectedThreadShell],
   );
 
-  const onPickDraftImages = useCallback(async () => {
+  const onPickDraftMedia = useCallback(async () => {
     if (!selectedThreadShell) {
       return;
     }
 
     const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
-    const result = await pickComposerImages({
+    const capabilities = selectedEnvironmentRuntime?.serverConfig?.environment.capabilities;
+    const result = await pickComposerMedia({
       existingCount: composerDrafts[threadKey]?.attachments.length ?? 0,
+      maxVideoBytes:
+        capabilities?.attachmentUploads === true
+          ? capabilities.fileAttachments?.maxUploadBytes
+          : undefined,
     });
-    const rejectedImageCount = appendComposerDraftAttachments(threadKey, result.images);
+    const rejectedCount = appendComposerDraftAttachments(threadKey, result.attachments);
     const problems = [
       ...(result.error ? [result.error] : []),
-      ...(rejectedImageCount > 0
+      ...(rejectedCount > 0
         ? [`You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`]
         : []),
     ];
     if (problems.length > 0) {
-      Alert.alert("Could not attach image", problems.join("\n\n"));
+      Alert.alert("Could not attach photo or video", problems.join("\n\n"));
     }
-  }, [composerDrafts, selectedThreadShell]);
+  }, [composerDrafts, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
 
   const onPickDraftFiles = useCallback(async () => {
     if (!selectedThreadShell) {
@@ -474,7 +520,16 @@ export function useThreadComposerState() {
         return;
       }
       const previous = modelSelection;
-      updateComposerDraftSettings(selectedThreadKey, { modelSelection: value });
+      const provider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
+        (candidate) => candidate.instanceId === value.instanceId,
+      );
+      const previousInteractionMode = interactionMode;
+      updateComposerDraftSettings(selectedThreadKey, {
+        modelSelection: value,
+        ...(provider?.showInteractionModeToggle === false
+          ? { interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE }
+          : {}),
+      });
       if (selectedThreadShell.kind !== "agent") return;
       const version = ++settingVersionsRef.current.model;
       void updateThreadMetadata({
@@ -484,6 +539,7 @@ export function useThreadComposerState() {
         if (result._tag !== "Failure" || settingVersionsRef.current.model !== version) return;
         updateComposerDraftSettings(selectedThreadKey, {
           modelSelection: previous ?? undefined,
+          interactionMode: previousInteractionMode ?? undefined,
         });
         if (!isAtomCommandInterrupted(result)) {
           const error = Cause.squash(result.cause);
@@ -494,7 +550,14 @@ export function useThreadComposerState() {
         }
       });
     },
-    [modelSelection, selectedThreadKey, selectedThreadShell, updateThreadMetadata],
+    [
+      interactionMode,
+      modelSelection,
+      selectedEnvironmentRuntime?.serverConfig,
+      selectedThreadKey,
+      selectedThreadShell,
+      updateThreadMetadata,
+    ],
   );
 
   const onUpdateRuntimeMode = useCallback(
@@ -530,12 +593,21 @@ export function useThreadComposerState() {
         return;
       }
       const previous = interactionMode;
-      updateComposerDraftSettings(selectedThreadKey, { interactionMode: value });
+      const modelSelection =
+        getComposerDraftSnapshot(selectedThreadKey).modelSelection ??
+        selectedThread?.modelSelection;
+      const provider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
+        (candidate) => candidate.instanceId === modelSelection?.instanceId,
+      );
+      const resolvedInteractionMode = resolveProviderInteractionMode(provider, value);
+      updateComposerDraftSettings(selectedThreadKey, {
+        interactionMode: resolvedInteractionMode,
+      });
       if (selectedThreadShell.kind !== "agent") return;
       const version = ++settingVersionsRef.current.interaction;
       void setThreadInteractionMode({
         environmentId: selectedThreadShell.environmentId,
-        input: { threadId: selectedThreadShell.id, interactionMode: value },
+        input: { threadId: selectedThreadShell.id, interactionMode: resolvedInteractionMode },
       }).then((result) => {
         if (result._tag !== "Failure" || settingVersionsRef.current.interaction !== version) return;
         updateComposerDraftSettings(selectedThreadKey, {
@@ -550,7 +622,14 @@ export function useThreadComposerState() {
         }
       });
     },
-    [interactionMode, selectedThreadKey, selectedThreadShell, setThreadInteractionMode],
+    [
+      interactionMode,
+      selectedEnvironmentRuntime?.serverConfig,
+      selectedThread?.modelSelection,
+      selectedThreadKey,
+      selectedThreadShell,
+      setThreadInteractionMode,
+    ],
   );
 
   return {
@@ -563,7 +642,7 @@ export function useThreadComposerState() {
     runtimeMode,
     interactionMode,
     onChangeDraftMessage,
-    onPickDraftImages,
+    onPickDraftMedia,
     onPickDraftFiles,
     onPasteIntoDraft,
     onNativePasteImages,

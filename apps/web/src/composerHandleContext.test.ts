@@ -7,8 +7,10 @@ function composerHandle(label: string): ChatComposerHandle {
   return {
     focusAtEnd: vi.fn(),
     focusAt: vi.fn(),
+    restoreAfterTimelineReachedEnd: vi.fn(),
     addDroppedFiles: vi.fn(),
     insertTextAtEnd: vi.fn(() => false),
+    citeAssistantText: vi.fn(() => true),
     openModelPicker: vi.fn(),
     toggleModelPicker: vi.fn(),
     isModelPickerOpen: vi.fn(() => false),

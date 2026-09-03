@@ -19,8 +19,6 @@ function entryTurnId(entry: TimelineEntry): TurnId | null {
       return entry.message.turnId;
     case "proposed-plan":
       return entry.proposedPlan.turnId;
-    case "turn-plan":
-      return entry.turnPlan.turnId;
     case "work":
       return entry.entry.turnId ?? null;
   }
