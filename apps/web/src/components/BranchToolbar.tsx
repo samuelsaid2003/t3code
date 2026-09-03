@@ -504,16 +504,67 @@ export const BranchToolbar = memo(function BranchToolbar({
 
   if (!hasActiveThread || !activeProject) return null;
 
+  if (presentation === "header") {
+    return (
+      <div
+        data-run-context-presentation="header"
+        className="flex w-fit max-w-[22rem] min-w-0 shrink items-center gap-1 overflow-x-clip overflow-y-visible border-border/60 border-l pl-2 [-webkit-app-region:no-drag]"
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {showEnvironmentIndicator && availableEnvironments ? (
+            <>
+              <BranchToolbarEnvironmentSelector
+                envLocked={envLocked}
+                environmentId={environmentId}
+                availableEnvironments={availableEnvironments}
+                {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
+              />
+              {showGitControls ? (
+                <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              ) : null}
+            </>
+          ) : null}
+          {showGitControls ? (
+            <BranchToolbarEnvModeSelector
+              envLocked={envModeLocked}
+              effectiveEnvMode={effectiveEnvMode}
+              activeWorktreePath={activeWorktreePath}
+              onEnvModeChange={onEnvModeChange}
+              previousWorktreeLabel={previousWorktreeLabel}
+              onUsePreviousWorktree={onUsePreviousWorktree}
+            />
+          ) : null}
+        </div>
+
+        {showGitControls ? (
+          <BranchToolbarBranchSelector
+            className="ml-auto min-w-0 flex-none justify-end"
+            environmentId={environmentId}
+            threadId={threadId}
+            {...(draftId ? { draftId } : {})}
+            envLocked={envLocked}
+            {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
+            {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+            {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+            startFromOrigin={startFromOrigin}
+            onStartFromOriginChange={onStartFromOriginChange}
+            {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+            {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+            placement="header"
+          />
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <ComposerSurface.ContextStrip
       ref={setStripElement}
       data-compact={labelsOverflow ? "" : undefined}
-      data-run-context-presentation={presentation}
+      data-run-context-presentation="composer"
       className={cn(
         "group/composer-context min-w-0 overflow-x-clip overflow-y-visible",
-        presentation === "header"
-          ? "w-fit max-w-[22rem] shrink gap-1 border-border/60 border-l pl-2 [-webkit-app-region:no-drag]"
-          : "gap-1 text-xs font-normal text-muted-foreground/70",
+        "gap-1 text-xs font-normal text-muted-foreground/70",
         // A non-Git strip with no visible composer controls should occupy no
         // space, but its host must retain a prospective width so controls can
         // become visible again when the chat view grows.
